@@ -9,6 +9,8 @@ import Level1 from '../components/Level1/Level1';
 import { ModeType, LevelType } from '../types';
 import { authUtils } from '../utils/auth';
 import { apiService } from '../services/api';
+import Production from '../components/Production/Production';
+
 
 export default function Home() {
     const router = useRouter();
@@ -175,16 +177,9 @@ export default function Home() {
         )}
 
             {/* Production mode */}
+            {/* Production mode */}
             {currentMode === 'production' && (
-                <div className="text-white text-center">
-                    <h2 className="text-3xl mb-4">Production Mode - Coming Soon</h2>
-                    <button
-                        onClick={handleBackToModes}
-                        className="text-purple-300 hover:text-white"
-                    >
-                        ← Back to modes
-                    </button>
-                </div>
+                <Production onBack={handleBackToModes} />
             )}
         </Layout>
     );

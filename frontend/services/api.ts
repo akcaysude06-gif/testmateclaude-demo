@@ -19,19 +19,24 @@ apiClient.interceptors.request.use((config) => {
 });
 
 class ApiService {
-    // Health check
+    // ============================================
+    // Health & System
+    // ============================================
+
     async healthCheck() {
         const response = await apiClient.get('/api/health');
         return response.data;
     }
 
-    // GitHub OAuth login
+    // ============================================
+    // Authentication
+    // ============================================
+
     async getGithubAuthUrl(): Promise<{ auth_url: string }> {
         const response = await apiClient.get('/api/auth/github/login');
         return response.data;
     }
 
-    // Verify token and get user info
     async verifyToken(token: string) {
         const response = await apiClient.post('/api/auth/verify', null, {
             params: { token }
@@ -39,7 +44,6 @@ class ApiService {
         return response.data;
     }
 
-    // Get current user
     async getCurrentUser() {
         const token = authUtils.getToken();
         const response = await apiClient.get('/api/auth/me', {
@@ -47,21 +51,33 @@ class ApiService {
         });
         return response.data;
     }
+    // Production - Get repository tree
+    async getRepositoryTree(owner: string, repo: string, token: string): Promise<any> {
+        const response = await apiClient.get(`/api/production/repository/${owner}/${repo}/tree`, {
+            params: { token }
+        });
+        return response.data;
+    }
 
-    // Logout
     async logout() {
         const response = await apiClient.post('/api/auth/logout');
         authUtils.removeToken();
         return response.data;
     }
 
-    // Level 0 - Get educational content
+    // ============================================
+    // Level 0 - Educational Content
+    // ============================================
+
     async getLevel0Content(): Promise<any> {
         const response = await apiClient.get('/api/level0/content');
         return response.data;
     }
 
-    // Level 1 - Generate automation code with extended timeout
+    // ============================================
+    // Level 1 - Code Generation
+    // ============================================
+
     async generateAutomationCode(testDescription: string): Promise<any> {
         try {
             const response = await apiClient.post('/api/level1/generate-code', {
@@ -78,24 +94,42 @@ class ApiService {
         }
     }
 
-    // Level 1 - Get test examples
     async getTestExamples(): Promise<{ examples: any[] }> {
         const response = await apiClient.get('/api/level1/examples');
         return response.data;
     }
 
-    // Check Llama 3 health
     async checkLlamaHealth(): Promise<any> {
         const response = await apiClient.get('/api/level1/health');
         return response.data;
     }
 
-    // Production - Analyze code
-    async analyzeCode(code?: string, repoName?: string): Promise<any> {
+    // ============================================
+    // Production Mode - Repository & AI
+    // ============================================
+
+    async getUserRepositories(token: string): Promise<any> {
+        const response = await apiClient.get('/api/production/repositories', {
+            params: { token }
+        });
+        return response.data;
+    }
+
+    async analyzeCode(code: string, repoContext?: string): Promise<any> {
         const response = await apiClient.post('/api/production/analyze-code', {
             code,
-            repo_name: repoName
+            repo_context: repoContext
         });
+        return response.data;
+    }
+
+    async generateTest(request: {
+        repo_name: string;
+        file_path: string;
+        code_snippet: string;
+        user_request: string;
+    }): Promise<any> {
+        const response = await apiClient.post('/api/production/generate-test', request);
         return response.data;
     }
 }
