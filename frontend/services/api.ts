@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { AIResponse } from '../types';
 import { authUtils } from '../utils/auth';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -20,7 +19,47 @@ apiClient.interceptors.request.use((config) => {
 });
 
 class ApiService {
-    // ... existing methods ...
+    // Health check
+    async healthCheck() {
+        const response = await apiClient.get('/api/health');
+        return response.data;
+    }
+
+    // GitHub OAuth login
+    async getGithubAuthUrl(): Promise<{ auth_url: string }> {
+        const response = await apiClient.get('/api/auth/github/login');
+        return response.data;
+    }
+
+    // Verify token and get user info
+    async verifyToken(token: string) {
+        const response = await apiClient.post('/api/auth/verify', null, {
+            params: { token }
+        });
+        return response.data;
+    }
+
+    // Get current user
+    async getCurrentUser() {
+        const token = authUtils.getToken();
+        const response = await apiClient.get('/api/auth/me', {
+            params: { token }
+        });
+        return response.data;
+    }
+
+    // Logout
+    async logout() {
+        const response = await apiClient.post('/api/auth/logout');
+        authUtils.removeToken();
+        return response.data;
+    }
+
+    // Level 0 - Get educational content
+    async getLevel0Content(): Promise<any> {
+        const response = await apiClient.get('/api/level0/content');
+        return response.data;
+    }
 
     // Level 1 - Generate automation code with extended timeout
     async generateAutomationCode(testDescription: string): Promise<any> {
@@ -48,6 +87,15 @@ class ApiService {
     // Check Llama 3 health
     async checkLlamaHealth(): Promise<any> {
         const response = await apiClient.get('/api/level1/health');
+        return response.data;
+    }
+
+    // Production - Analyze code
+    async analyzeCode(code?: string, repoName?: string): Promise<any> {
+        const response = await apiClient.post('/api/production/analyze-code', {
+            code,
+            repo_name: repoName
+        });
         return response.data;
     }
 }

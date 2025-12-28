@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
 import { Download, Copy, Check, Code, BookOpen, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 interface CodeDisplayProps {
     code: {
@@ -130,21 +128,13 @@ const CodeDisplay: React.FC<CodeDisplayProps> = ({ code, onReset }) => {
                         </div>
                     </div>
 
-                    {/* Code Content */}
+                    {/* Code Content - Simple Pre/Code Block */}
                     <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-                        <SyntaxHighlighter
-                            language="python"
-                            style={vscDarkPlus}
-                            customStyle={{
-                                margin: 0,
-                                padding: '1.5rem',
-                                background: 'transparent',
-                                fontSize: '0.875rem'
-                            }}
-                            showLineNumbers
-                        >
-                            {code.code}
-                        </SyntaxHighlighter>
+                        <pre className="p-6 text-sm">
+                            <code className="text-green-300 font-mono whitespace-pre">
+                                {code.code}
+                            </code>
+                        </pre>
                     </div>
                 </div>
             </div>
