@@ -1,165 +1,67 @@
-from fastapi import FastAPI, HTTPException
+"""
+TestMate API - Main Application
+"""
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional, List
-import anthropic
-import os
-from dotenv import load_dotenv
+from config.settings import settings
+from routes import level0, level1, production, auth
+from services.llama_service import llama_service
+from services.claude_service import claude_service
+from database import init_db
 
-load_dotenv()
+# Initialize database
+init_db()
 
-app = FastAPI()
+# Create FastAPI app
+app = FastAPI(
+    title=settings.APP_NAME,
+    version=settings.VERSION,
+    description="AI-Assisted Testing Framework for learning and automation"
+)
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
-class TestCaseRequest(BaseModel):
-    test_case: str
-
-class CodeAnalysisRequest(BaseModel):
-    code: Optional[str] = None
-    repo_name: Optional[str] = None
+# Include routers
+app.include_router(auth.router)  # Add auth router
+app.include_router(level0.router)
+app.include_router(level1.router)
+app.include_router(production.router)
 
 @app.get("/")
-def read_root():
-    return {"message": "TestMate API is running"}
-
-@app.post("/api/github/login")
-def github_login():
-    """Mock GitHub login - returns mock repos"""
+async def root():
+    """Root endpoint"""
     return {
-        "success": True,
-        "repos": [
-            {"id": 1, "name": "ecommerce-tests", "language": "Python", "updated": "2 days ago"},
-            {"id": 2, "name": "login-automation", "language": "Java", "updated": "1 week ago"},
-            {"id": 3, "name": "api-test-suite", "language": "Python", "updated": "3 days ago"}
-        ]
+        "message": f"{settings.APP_NAME} API is running",
+        "version": settings.VERSION,
+        "docs": "/docs"
     }
 
-@app.get("/api/level0/content")
-def get_level0_content():
-    """Returns educational content for Level 0"""
-    prompt = """You are a software testing educator. Provide a comprehensive but beginner-friendly explanation covering:
-1. What is Software Testing?
-2. Manual Testing vs Automation Testing
-3. Why Selenium for web automation?
+@app.get("/api/health")
+async def health_check():
+    """Check health status of all AI services"""
+    llama_status = "available" if llama_service.check_availability() else "unavailable"
+    claude_status = "available" if claude_service.check_availability() else "not configured"
 
-Keep it clear, structured, and encouraging for complete beginners."""
-
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}]
-    )
+    overall_status = "healthy" if llama_status == "available" else "partial"
 
     return {
-        "type": "education",
-        "content": message.content[0].text
-    }
-
-@app.post("/api/generate-automation")
-def generate_automation(request: TestCaseRequest):
-    """Generate Selenium automation code from test case"""
-
-    prompt = f"""You are an expert in Selenium WebDriver and Cucumber BDD testing. 
-
-Given this test case: "{request.test_case}"
-
-Please provide:
-1. A brief explanation of the approach (2-3 sentences)
-2. A complete Cucumber feature file with the scenario
-3. Python step definitions using Selenium WebDriver with proper waits and best practices
-4. A detailed reasoning section explaining why you structured it this way
-
-Format your response with clear sections for Explanation, Code, and Reasoning."""
-
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=3000,
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    response_text = message.content[0].text
-
-    # Parse response into sections (simple approach)
-    sections = {
-        "explanation": "",
-        "code": "",
-        "reasoning": ""
-    }
-
-    return {
-        "type": "automation",
-        "testCase": request.test_case,
-        "explanation": response_text[:500],  # First part
-        "code": response_text,  # Full response as code
-        "reasoning": "The structure follows BDD principles with Gherkin syntax for the feature file and Python step definitions implementing Selenium actions with explicit waits for reliability."
-    }
-
-@app.post("/api/analyze-code")
-def analyze_code(request: CodeAnalysisRequest):
-    """Analyze automation code and provide improvements"""
-
-    code_to_analyze = request.code if request.code else f"Code from repository: {request.repo_name}"
-
-    prompt = f"""You are an expert automation testing consultant. Analyze this Selenium automation code or repository:
-
-{code_to_analyze}
-
-Provide:
-1. Top 3 issues found (with severity: high/medium/low, title, description, location, suggestion)
-2. Recommended improvements with code examples
-3. Metrics estimation (total tests, code coverage estimate, redundant code percentage, avg execution time)
-
-Be specific and actionable."""
-
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2500,
-        messages=[{"role": "user", "content": prompt}]
-    )
-
-    response_text = message.content[0].text
-
-    return {
-        "type": "analysis",
-        "issues": [
-            {
-                "severity": "high",
-                "title": "Hard-coded waits detected",
-                "description": "Using time.sleep() instead of explicit waits",
-                "location": "Multiple test files",
-                "suggestion": "Replace with WebDriverWait for more reliable tests"
-            },
-            {
-                "severity": "medium",
-                "title": "Missing error handling",
-                "description": "No try-catch blocks around element interactions",
-                "location": "Step definitions",
-                "suggestion": "Add exception handling for NoSuchElementException"
-            },
-            {
-                "severity": "low",
-                "title": "Duplicate locator definitions",
-                "description": "Same CSS selectors defined in multiple tests",
-                "location": "test_login.py, test_register.py",
-                "suggestion": "Create a Page Object Model to centralize locators"
-            }
-        ],
-        "improvements": response_text,
-        "metrics": {
-            "totalTests": 24,
-            "codeCoverage": "67%",
-            "redundantCode": "18%",
-            "avgExecutionTime": "3.2s"
+        "status": overall_status,
+        "services": {
+            "llama3": llama_status,
+            "claude": claude_status
+        },
+        "endpoints": {
+            "auth": "/api/auth/github/login",
+            "level0": "/api/level0/content",
+            "level1": "/api/level1/generate-automation",
+            "production": "/api/production/analyze-code"
         }
     }
 
