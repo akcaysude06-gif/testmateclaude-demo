@@ -27,7 +27,6 @@ export default function Home() {
 
             if (token) {
                 try {
-                    // Verify token is still valid
                     const userData = await apiService.getCurrentUser();
                     setUser(userData);
                     setIsAuthenticated(true);
@@ -40,7 +39,15 @@ export default function Home() {
             setIsLoading(false);
         };
 
-        checkAuth();
+        // 5 saniye sonra zorla loading'i kapat (backend cevap vermezse)
+        const timeout = setTimeout(() => {
+            setIsLoading(false);
+        }, 5000);
+
+        checkAuth().finally(() => {
+            clearTimeout(timeout);
+            setIsLoading(false);
+        });
     }, []);
 
     // Sync state with URL hash
@@ -93,7 +100,6 @@ export default function Home() {
     }, []);
 
     const handleLogin = () => {
-        // This is called after successful OAuth
         setIsAuthenticated(true);
     };
 
@@ -153,12 +159,10 @@ export default function Home() {
     // Authenticated - show main app
     return (
         <Layout onLogout={handleLogout} user={user}>
-            {/* No mode selected - show mode selection */}
             {!currentMode && (
                 <ModeSelection onSelectMode={handleSelectMode} />
             )}
 
-            {/* Guided mode - no level selected - show level selection */}
             {currentMode === 'guided' && currentLevel === null && (
                 <LevelSelection
                     onSelectLevel={handleSelectLevel}
@@ -166,18 +170,14 @@ export default function Home() {
                 />
             )}
 
-            {/* Guided mode - Level 0 selected */}
             {currentMode === 'guided' && currentLevel === 0 && (
                 <Level0 onBack={handleBackToLevels} />
             )}
 
-            {/* Guided mode - Level 1 selected */}
             {currentMode === 'guided' && currentLevel === 1 && (
-            <Level1 onBack={handleBackToLevels} />
-        )}
+                <Level1 onBack={handleBackToLevels} />
+            )}
 
-            {/* Production mode */}
-            {/* Production mode */}
             {currentMode === 'production' && (
                 <Production onBack={handleBackToModes} />
             )}

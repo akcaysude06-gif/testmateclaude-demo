@@ -1,38 +1,33 @@
-"""
-Level 0 Routes - Testing Fundamentals
-Educational content for complete beginners
-"""
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Optional
 from services.llama_service import llama_service
-from models.schemas import EducationalContentResponse
 
-router = APIRouter(prefix="/api/level0", tags=["Level 0 - Fundamentals"])
+router = APIRouter(prefix="/api/level0", tags=["Level 0"])
 
-@router.get("/content", response_model=EducationalContentResponse)
-async def get_educational_content():
-	"""
-	Get comprehensive educational content about software testing fundamentals.
+class ManualTestRequest(BaseModel):
+	test_steps: str
+	scenario: Optional[str] = "Login Form"
+	url: Optional[str] = "the-internet.herokuapp.com"
 
-	This endpoint uses Llama 3 to generate beginner-friendly content covering:
-	- What is Software Testing?
-	- Manual vs Automation Testing
-	- Why Selenium for web automation?
+class AskRequest(BaseModel):
+	question: str
+	context: str = ""
 
-	Returns:
-		Educational content with model information
-	"""
+@router.post("/evaluate-manual-test")
+async def evaluate_manual_test(req: ManualTestRequest):
 	try:
-		content = llama_service.generate_educational_content()
-
-		return EducationalContentResponse(
-			type="education",
-			content=content,
-			model="llama3"
-		)
+		return {"feedback": llama_service.evaluate_manual_test(req.test_steps, req.scenario, req.url)}
 	except HTTPException as e:
 		raise e
 	except Exception as e:
-		raise HTTPException(
-			status_code=500,
-			detail=f"Failed to generate Level 0 content: {str(e)}"
-		)
+		raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/ask")
+async def ask_question(req: AskRequest):
+	try:
+		return {"answer": llama_service.answer_automation_question(req.question, req.context)}
+	except HTTPException as e:
+		raise e
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
