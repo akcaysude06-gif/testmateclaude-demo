@@ -1,16 +1,30 @@
 """
 Production Routes - Work with real GitHub repositories
 """
+import asyncio
+import json
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
 from database import get_db, User
 from services.auth_service import auth_service
 from services.github_service import github_service
-from services.claude_service import claude_service
+from services.llama_service import llama_service
 
 router = APIRouter(prefix="/api/production", tags=["Production"])
+
+class CustomPromptRequest(BaseModel):
+	prompt: str
+	repo_context: Optional[str] = ""
+
+class ClassifyRequest(BaseModel):
+	repo_context: str
+
+class ImproveTestsRequest(BaseModel):
+	code: Optional[str] = ""
+	repo_context: Optional[str] = ""
 
 class AnalyzeCodeRequest(BaseModel):
 	code: str
@@ -121,6 +135,93 @@ async def get_file_content(
 			detail=f"Failed to fetch file content: {str(e)}"
 		)
 
+@router.post("/custom-prompt")
+async def custom_prompt_stream(request: CustomPromptRequest):
+	"""
+	Stream a custom prompt response via SSE using Claude.
+	"""
+	full_prompt = (
+		f"You are an expert software testing consultant.\n\n"
+		f"REPOSITORY CONTEXT:\n{request.repo_context}\n\n"
+		f"USER REQUEST:\n{request.prompt}\n\n"
+		f"Provide a clear, structured, and actionable response."
+	)
+
+	def sse_generator():
+		try:
+			response = llama_service.generate_text(full_prompt, max_tokens=2000)
+			# Simulate streaming by chunking the response
+			chunk_size = 50
+			for i in range(0, len(response), chunk_size):
+				chunk = response[i:i+chunk_size]
+				yield f"data: {json.dumps(chunk)}\n\n"
+			yield "data: [DONE]\n\n"
+		except Exception as e:
+			yield f"data: {json.dumps(f'[Error: {str(e)}]')}\n\n"
+			yield "data: [DONE]\n\n"
+
+	if not llama_service.model:
+		raise HTTPException(status_code=503, detail="Gemini API key not configured")
+
+	return StreamingResponse(sse_generator(), media_type="text/event-stream")
+
+
+@router.post("/classify")
+async def classify_project(request: ClassifyRequest):
+	"""
+	Classify a repository as a 'test' project or 'dev' project.
+	"""
+	if not llama_service.model:
+		return {"type": "dev"}
+
+	prompt = (
+		f"Given this repository context, classify it as either a 'test' project "
+		f"(primary purpose is testing/QA) or a 'dev' project (primary purpose is "
+		f"application development). Reply with ONLY the single word: test or dev.\n\n"
+		f"CONTEXT:\n{request.repo_context}"
+	)
+	try:
+		result = llama_service.generate_text(prompt, max_tokens=10)
+		project_type = "test" if "test" in result.lower() else "dev"
+		return {"type": project_type}
+	except Exception:
+		return {"type": "dev"}
+
+
+@router.post("/improve-tests")
+async def improve_tests_stream(request: ImproveTestsRequest):
+	"""
+	Stream suggestions to improve existing test structure via SSE using Claude.
+	"""
+	full_prompt = (
+		f"You are an expert software testing consultant. Analyze the following "
+		f"repository and provide concrete, actionable suggestions to improve the "
+		f"test structure, quality, and maintainability.\n\n"
+		f"REPOSITORY CONTEXT:\n{request.repo_context}\n\n"
+		f"CODE:\n{request.code or '(no specific code provided)'}\n\n"
+		f"Provide structured recommendations with clear headings."
+	)
+
+	def sse_generator():
+		try:
+			with llama_service.client.messages.stream(
+					model="claude-sonnet-4-20250514",
+					max_tokens=2000,
+					messages=[{"role": "user", "content": full_prompt}],
+			) as stream:
+				for text in stream.text_stream:
+					yield f"data: {json.dumps(text)}\n\n"
+			yield "data: [DONE]\n\n"
+		except Exception as e:
+			yield f"data: {json.dumps(f'[Error: {str(e)}]')}\n\n"
+			yield "data: [DONE]\n\n"
+
+	if not llama_service.client:
+		raise HTTPException(status_code=503, detail="Claude API key not configured")
+
+	return StreamingResponse(sse_generator(), media_type="text/event-stream")
+
+
 @router.post("/analyze-code", response_model=AnalysisResponse)
 async def analyze_code(request: AnalyzeCodeRequest):
 	"""
@@ -131,7 +232,7 @@ async def analyze_code(request: AnalyzeCodeRequest):
 		content_to_analyze = request.code if request.code else request.repo_context or ""
 		context = request.repo_context if request.repo_context else ""
 
-		result = claude_service.analyze_code_for_testing(
+		result = llama_service.analyze_code_for_testing(
 			content_to_analyze,
 			context
 		)
@@ -159,7 +260,7 @@ async def generate_test(request: GenerateTestRequest):
 	Generate test code based on repository context and user request
 	"""
 	try:
-		result = claude_service.generate_test_from_context(
+		result = llama_service.generate_test_from_context(
 			request.repo_name,
 			request.file_path,
 			request.code_snippet,

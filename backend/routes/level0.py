@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from services.llama_service import llama_service
+from services.llama_service import llama_service
 
 router = APIRouter(prefix="/api/level0", tags=["Level 0"])
 
