@@ -1,341 +1,238 @@
 """
-Production Routes - Work with real GitHub repositories
+Production Routes — SSE streaming via Llama (Ollama) for all AI actions.
 """
-import asyncio
-import json
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional, List
-from database import get_db, User
+from typing import Optional
+from database import get_db
 from services.auth_service import auth_service
 from services.github_service import github_service
 from services.llama_service import llama_service
+import asyncio, json
 
 router = APIRouter(prefix="/api/production", tags=["Production"])
 
-class CustomPromptRequest(BaseModel):
-	prompt: str
-	repo_context: Optional[str] = ""
 
-class ClassifyRequest(BaseModel):
-	repo_context: str
-
-class ImproveTestsRequest(BaseModel):
-	code: Optional[str] = ""
-	repo_context: Optional[str] = ""
+# ── Models ────────────────────────────────────────────────────────────────────
 
 class AnalyzeCodeRequest(BaseModel):
 	code: str
 	repo_context: Optional[str] = None
 
 class GenerateTestRequest(BaseModel):
-	repo_name: str
-	file_path: str
+	repo_name:    str
+	file_path:    str
 	code_snippet: str
 	user_request: str
 
-class AnalysisResponse(BaseModel):
-	analysis: str
-	suggestions: List[str]
-	model: str
+class CustomPromptRequest(BaseModel):
+	prompt:       str
+	repo_context: Optional[str] = None
 
-class TestGenerationResponse(BaseModel):
-	code: str
-	explanation: str
-	language: str
-	model: str
+class ClassifyRequest(BaseModel):
+	repo_context: str
+
+
+# ── Llama streaming core ──────────────────────────────────────────────────────
+
+async def _sse_llama(prompt: str, max_tokens: int = 2048):
+	"""Stream tokens from Llama via Ollama's streaming API."""
+	import requests
+	from config.settings import settings
+
+	loop = asyncio.get_event_loop()
+	queue: asyncio.Queue = asyncio.Queue()
+	_DONE = object()
+
+	def _run():
+		try:
+			resp = requests.post(
+				settings.LLAMA_API_URL,
+				json={
+					"model":  settings.LLAMA_MODEL,
+					"prompt": prompt,
+					"stream": True,
+					"options": {"temperature": 0.7, "num_predict": max_tokens},
+				},
+				stream=True,
+				timeout=120,
+			)
+			resp.raise_for_status()
+			for line in resp.iter_lines():
+				if not line:
+					continue
+				try:
+					chunk = json.loads(line)
+					token = chunk.get("response", "")
+					if token:
+						loop.call_soon_threadsafe(queue.put_nowait, token)
+					if chunk.get("done"):
+						break
+				except json.JSONDecodeError:
+					continue
+		except Exception as e:
+			loop.call_soon_threadsafe(queue.put_nowait, f"\n[Error: {str(e)}]")
+		finally:
+			loop.call_soon_threadsafe(queue.put_nowait, _DONE)
+
+	import threading
+	threading.Thread(target=_run, daemon=True).start()
+
+	while True:
+		tok = await queue.get()
+		if tok is _DONE:
+			break
+		yield f"data: {json.dumps(tok)}\n\n"
+	yield "data: [DONE]\n\n"
+
+
+def _resp(prompt: str, max_tokens: int = 2048):
+	return StreamingResponse(
+		_sse_llama(prompt, max_tokens),
+		media_type="text/event-stream",
+		headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+	)
+
+
+# ── Repository endpoints ──────────────────────────────────────────────────────
 
 @router.get("/repositories")
 async def get_user_repositories(token: str, db: Session = Depends(get_db)):
-	"""
-	Get all GitHub repositories for the authenticated user
-	"""
 	try:
-		# Get current user
-		user = auth_service.get_current_user(db, token)
-
-		# Fetch repositories using the stored GitHub access token
-		repositories = await github_service.get_user_repositories(user.github_access_token)
-
-		return {
-			"repositories": repositories,
-			"count": len(repositories)
-		}
-
-	except HTTPException:
-		raise
-	except Exception as e:
-		raise HTTPException(
-			status_code=500,
-			detail=f"Failed to fetch repositories: {str(e)}"
-		)
+		user  = auth_service.get_current_user(db, token)
+		repos = await github_service.get_user_repositories(user.github_access_token)
+		return {"repositories": repos, "count": len(repos)}
+	except HTTPException: raise
+	except Exception as e: raise HTTPException(500, str(e))
 
 @router.get("/repository/{owner}/{repo}/structure")
-async def get_repository_structure(
-		owner: str,
-		repo: str,
-		path: str = "",
-		token: str = None,
-		db: Session = Depends(get_db)
-):
-	"""
-	Get the file/folder structure of a repository
-	"""
+async def get_repo_structure(owner: str, repo: str, path: str = "",
+                             token: str = None, db: Session = Depends(get_db)):
 	try:
 		user = auth_service.get_current_user(db, token)
-		structure = await github_service.get_repository_structure(
-			user.github_access_token,
-			owner,
-			repo,
-			path
-		)
-
-		return {"structure": structure}
-
-	except HTTPException:
-		raise
-	except Exception as e:
-		raise HTTPException(
-			status_code=500,
-			detail=f"Failed to fetch repository structure: {str(e)}"
-		)
+		return {"structure": await github_service.get_repository_structure(
+			user.github_access_token, owner, repo, path)}
+	except HTTPException: raise
+	except Exception as e: raise HTTPException(500, str(e))
 
 @router.get("/repository/{owner}/{repo}/file")
-async def get_file_content(
-		owner: str,
-		repo: str,
-		path: str,
-		token: str = None,
-		db: Session = Depends(get_db)
-):
-	"""
-	Get the content of a specific file
-	"""
+async def get_file_content(owner: str, repo: str, path: str,
+                           token: str = None, db: Session = Depends(get_db)):
 	try:
 		user = auth_service.get_current_user(db, token)
-		content = await github_service.get_file_content(
-			user.github_access_token,
-			owner,
-			repo,
-			path
-		)
+		return {"content": await github_service.get_file_content(
+			user.github_access_token, owner, repo, path), "path": path}
+	except HTTPException: raise
+	except Exception as e: raise HTTPException(500, str(e))
 
-		return {
-			"content": content,
-			"path": path
-		}
+@router.get("/repository/{owner}/{repo}/tree")
+async def get_repo_tree(owner: str, repo: str,
+                        token: str = None, db: Session = Depends(get_db)):
+	try:
+		user = auth_service.get_current_user(db, token)
+		async def build(path=""):
+			s = await github_service.get_repository_structure(
+				user.github_access_token, owner, repo, path)
+			if isinstance(s, dict): s = [s]
+			tree = []
+			for item in s:
+				node = {k: item[k] for k in ("name", "path", "type")}
+				node["size"] = item.get("size", 0)
+				if item["type"] == "dir":
+					try: node["children"] = await build(item["path"])
+					except: node["children"] = []
+				tree.append(node)
+			return tree
+		return {"tree": await build()}
+	except HTTPException: raise
+	except Exception as e: raise HTTPException(500, str(e))
 
-	except HTTPException:
-		raise
-	except Exception as e:
-		raise HTTPException(
-			status_code=500,
-			detail=f"Failed to fetch file content: {str(e)}"
-		)
 
-@router.post("/custom-prompt")
-async def custom_prompt_stream(request: CustomPromptRequest):
-	"""
-	Stream a custom prompt response via SSE using Claude.
-	"""
-	full_prompt = (
-		f"You are an expert software testing consultant.\n\n"
-		f"REPOSITORY CONTEXT:\n{request.repo_context}\n\n"
-		f"USER REQUEST:\n{request.prompt}\n\n"
-		f"Provide a clear, structured, and actionable response."
-	)
-
-	def sse_generator():
-		try:
-			response = llama_service.generate_text(full_prompt, max_tokens=2000)
-			# Simulate streaming by chunking the response
-			chunk_size = 50
-			for i in range(0, len(response), chunk_size):
-				chunk = response[i:i+chunk_size]
-				yield f"data: {json.dumps(chunk)}\n\n"
-			yield "data: [DONE]\n\n"
-		except Exception as e:
-			yield f"data: {json.dumps(f'[Error: {str(e)}]')}\n\n"
-			yield "data: [DONE]\n\n"
-
-	if not llama_service.model:
-		raise HTTPException(status_code=503, detail="Gemini API key not configured")
-
-	return StreamingResponse(sse_generator(), media_type="text/event-stream")
-
+# ── Classify endpoint (Llama — single word, keep cheap) ──────────────────────
 
 @router.post("/classify")
 async def classify_project(request: ClassifyRequest):
-	"""
-	Classify a repository as a 'test' project or 'dev' project.
-	"""
-	if not llama_service.model:
-		return {"type": "dev"}
-
 	prompt = (
-		f"Given this repository context, classify it as either a 'test' project "
-		f"(primary purpose is testing/QA) or a 'dev' project (primary purpose is "
-		f"application development). Reply with ONLY the single word: test or dev.\n\n"
-		f"CONTEXT:\n{request.repo_context}"
+		f"Classify this software project as either 'test' or 'dev'.\n"
+		f"A 'test' project is primarily a test suite, QA automation, or testing framework.\n"
+		f"A 'dev' project is an application, library, game, API, or tool that needs tests written for it.\n\n"
+		f"Project info:\n{request.repo_context}\n\n"
+		f"Reply with a single word only: test or dev"
 	)
-	try:
-		result = llama_service.generate_text(prompt, max_tokens=10)
-		project_type = "test" if "test" in result.lower() else "dev"
-		return {"type": project_type}
-	except Exception:
-		return {"type": "dev"}
+	loop = asyncio.get_event_loop()
+	result = await loop.run_in_executor(
+		None, llama_service.generate_text, prompt, 0.0, 5
+	)
+	label = "test" if "test" in result.strip().lower() else "dev"
+	return {"type": label}
+
+
+# ── AI action endpoints (Llama streaming) ─────────────────────────────────────
+
+@router.post("/analyze-code")
+async def analyze_code(request: AnalyzeCodeRequest):
+	content = (request.code or "").strip()
+	context = (request.repo_context or "").strip()
+	info    = f"{context}\n{content}".strip() or "no context"
+	prompt  = (
+		f"You are a software testing consultant. Here is the project context:\n{info}\n\n"
+		f"Provide a thorough analysis covering:\n"
+		f"1. What type of project this is and what it does\n"
+		f"2. Whether tests exist and what kind\n"
+		f"3. The most critical areas that need testing and why\n"
+		f"4. Recommended testing approach (unit/integration/E2E) with justification\n"
+		f"5. Top 5 concrete first steps to improve test coverage\n\n"
+		f"Be specific — reference the actual repository name and language. Include code examples where useful."
+	)
+	return _resp(prompt, max_tokens=2048)
 
 
 @router.post("/improve-tests")
-async def improve_tests_stream(request: ImproveTestsRequest):
-	"""
-	Stream suggestions to improve existing test structure via SSE using Claude.
-	"""
-	full_prompt = (
-		f"You are an expert software testing consultant. Analyze the following "
-		f"repository and provide concrete, actionable suggestions to improve the "
-		f"test structure, quality, and maintainability.\n\n"
-		f"REPOSITORY CONTEXT:\n{request.repo_context}\n\n"
-		f"CODE:\n{request.code or '(no specific code provided)'}\n\n"
-		f"Provide structured recommendations with clear headings."
+async def improve_tests(request: AnalyzeCodeRequest):
+	content = (request.code or "").strip()
+	context = (request.repo_context or "").strip()
+	info    = f"{context}\n{content}".strip() or "no context"
+	prompt  = (
+		f"You are a software testing consultant. Here is the project context:\n{info}\n\n"
+		f"Provide detailed, actionable improvement recommendations:\n"
+		f"1. If tests exist: give 5 specific improvements with before/after code examples\n"
+		f"2. If no tests: recommend exactly what to write first, with a starter example\n"
+		f"3. The single biggest risk from the current testing gaps\n"
+		f"4. The best testing tool/framework for this stack and why\n"
+		f"5. One complete example test to demonstrate best practices\n\n"
+		f"Be specific to this project's language and structure."
 	)
-
-	def sse_generator():
-		try:
-			with llama_service.client.messages.stream(
-					model="claude-sonnet-4-20250514",
-					max_tokens=2000,
-					messages=[{"role": "user", "content": full_prompt}],
-			) as stream:
-				for text in stream.text_stream:
-					yield f"data: {json.dumps(text)}\n\n"
-			yield "data: [DONE]\n\n"
-		except Exception as e:
-			yield f"data: {json.dumps(f'[Error: {str(e)}]')}\n\n"
-			yield "data: [DONE]\n\n"
-
-	if not llama_service.client:
-		raise HTTPException(status_code=503, detail="Claude API key not configured")
-
-	return StreamingResponse(sse_generator(), media_type="text/event-stream")
+	return _resp(prompt, max_tokens=2048)
 
 
-@router.post("/analyze-code", response_model=AnalysisResponse)
-async def analyze_code(request: AnalyzeCodeRequest):
-	"""
-	Analyze code and get AI suggestions for testing
-	"""
-	try:
-		# Use repo_context as the main content if code is empty
-		content_to_analyze = request.code if request.code else request.repo_context or ""
-		context = request.repo_context if request.repo_context else ""
-
-		result = llama_service.analyze_code_for_testing(
-			content_to_analyze,
-			context
-		)
-
-		return AnalysisResponse(
-			analysis=result["analysis"],
-			suggestions=result["suggestions"],
-			model=result["model"]
-		)
-
-	except HTTPException:
-		raise
-	except Exception as e:
-		print(f"Analysis error: {e}")  # Debug log
-		import traceback
-		traceback.print_exc()  # Print full error
-		raise HTTPException(
-			status_code=500,
-			detail=f"Failed to analyze code: {str(e)}"
-		)
-
-@router.post("/generate-test", response_model=TestGenerationResponse)
+@router.post("/generate-test")
 async def generate_test(request: GenerateTestRequest):
-	"""
-	Generate test code based on repository context and user request
-	"""
-	try:
-		result = llama_service.generate_test_from_context(
-			request.repo_name,
-			request.file_path,
-			request.code_snippet,
-			request.user_request
-		)
+	code_block = f"```\n{request.code_snippet}\n```\n" if request.code_snippet.strip() else ""
+	prompt = (
+		f"You are an expert test engineer.\n"
+		f"Repo: {request.repo_name} | File: {request.file_path}\n"
+		f"{code_block}"
+		f"Task: {request.user_request}\n\n"
+		f"Choose the right tool: UI→Selenium, functions→pytest, API→requests+pytest.\n"
+		f"Write a complete, runnable test with proper imports, setup, assertions, and teardown.\n"
+		f"Do not truncate the code — output the full implementation.\n\n"
+		f"```python\n[complete test code here]\n```\n\n"
+		f"EXPLANATION: [brief explanation of what the test covers and why]"
+	)
+	return _resp(prompt, max_tokens=2048)
 
-		return TestGenerationResponse(
-			code=result["code"],
-			explanation=result["explanation"],
-			language=result["language"],
-			model=result["model"]
-		)
 
-	except HTTPException:
-		raise
-	except Exception as e:
-		raise HTTPException(
-			status_code=500,
-			detail=f"Failed to generate test: {str(e)}"
-		)
-
-@router.get("/repository/{owner}/{repo}/tree")
-async def get_repository_tree(
-		owner: str,
-		repo: str,
-		token: str = None,
-		db: Session = Depends(get_db)
-):
-	"""
-	Get the complete file tree of a repository
-	"""
-	try:
-		user = auth_service.get_current_user(db, token)
-
-		async def build_tree(path: str = ""):
-			structure = await github_service.get_repository_structure(
-				user.github_access_token,
-				owner,
-				repo,
-				path
-			)
-
-			tree = []
-
-			# Handle if structure is a single file (not a list)
-			if isinstance(structure, dict):
-				structure = [structure]
-
-			for item in structure:
-				node = {
-					"name": item["name"],
-					"path": item["path"],
-					"type": item["type"],
-					"size": item.get("size", 0)
-				}
-
-				# If it's a directory, recursively get its contents
-				if item["type"] == "dir":
-					try:
-						node["children"] = await build_tree(item["path"])
-					except:
-						node["children"] = []
-
-				tree.append(node)
-
-			return tree
-
-		tree = await build_tree()
-
-		return {"tree": tree}
-
-	except HTTPException:
-		raise
-	except Exception as e:
-		raise HTTPException(
-			status_code=500,
-			detail=f"Failed to fetch repository tree: {str(e)}"
-		)
+@router.post("/custom-prompt")
+async def custom_prompt(request: CustomPromptRequest):
+	ctx     = (request.repo_context or "").strip()
+	project = f"Project context:\n{ctx}\n\n" if ctx else ""
+	prompt  = (
+		f"You are TestMate, an expert software testing assistant.\n"
+		f"{project}"
+		f"User question: {request.prompt}\n\n"
+		f"Give a thorough, specific answer. Include code examples where relevant.\n"
+		f"Do not cut off your response — complete every explanation and code block fully."
+	)
+	return _resp(prompt, max_tokens=2048)
