@@ -5,10 +5,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config.settings import settings
 from routes import level0, level1, production, auth
-from services.llama_service import llama_service
-from services.claude_service import claude_service
 from database import init_db
-
+from services.llama_service import llama_service
 # Initialize database
 init_db()
 
@@ -45,22 +43,16 @@ async def root():
 
 @app.get("/api/health")
 async def health_check():
-    """Check health status of all AI services"""
     llama_status = "available" if llama_service.check_availability() else "unavailable"
-    claude_status = "available" if claude_service.check_availability() else "not configured"
-
-    overall_status = "healthy" if llama_status == "available" else "partial"
-
     return {
-        "status": overall_status,
+        "status": "healthy" if llama_status == "available" else "partial",
         "services": {
-            "llama3": llama_status,
-            "claude": claude_status
+            "llama3": llama_status
         },
         "endpoints": {
             "auth": "/api/auth/github/login",
-            "level0": "/api/level0/content",
-            "level1": "/api/level1/generate-automation",
+            "level0": "/api/level0/evaluate-manual-test",
+            "level1": "/api/level1/generate-code",
             "production": "/api/production/analyze-code"
         }
     }

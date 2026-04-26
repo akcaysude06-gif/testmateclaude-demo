@@ -3,134 +3,110 @@ import { authUtils } from '../utils/auth';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// Create axios instance with longer timeout for AI requests
 const apiClient = axios.create({
     baseURL: API_URL,
-    timeout: 150000, // 150 seconds (2.5 minutes) for AI generation
+    timeout: 150000, // 150 s — Llama can be slow
 });
 
-// Add token to requests
 apiClient.interceptors.request.use((config) => {
     const token = authUtils.getToken();
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
 });
 
 class ApiService {
-    // ============================================
-    // Health & System
-    // ============================================
 
+    // ── Health ────────────────────────────────────────────────────────────
     async healthCheck() {
-        const response = await apiClient.get('/api/health');
-        return response.data;
+        return (await apiClient.get('/api/health')).data;
     }
 
-    // ============================================
-    // Authentication
-    // ============================================
-
+    // ── Auth ──────────────────────────────────────────────────────────────
     async getGithubAuthUrl(): Promise<{ auth_url: string }> {
-        const response = await apiClient.get('/api/auth/github/login');
-        return response.data;
+        return (await apiClient.get('/api/auth/github/login')).data;
     }
 
     async verifyToken(token: string) {
-        const response = await apiClient.post('/api/auth/verify', null, {
-            params: { token }
-        });
-        return response.data;
+        return (await apiClient.post('/api/auth/verify', null, { params: { token } })).data;
     }
 
     async getCurrentUser() {
         const token = authUtils.getToken();
-        const response = await apiClient.get('/api/auth/me', {
-            params: { token }
-        });
-        return response.data;
-    }
-    // Production - Get repository tree
-    async getRepositoryTree(owner: string, repo: string, token: string): Promise<any> {
-        const response = await apiClient.get(`/api/production/repository/${owner}/${repo}/tree`, {
-            params: { token }
-        });
-        return response.data;
+        return (await apiClient.get('/api/auth/me', { params: { token } })).data;
     }
 
     async logout() {
-        const response = await apiClient.post('/api/auth/logout');
+        const data = (await apiClient.post('/api/auth/logout')).data;
         authUtils.removeToken();
-        return response.data;
+        return data;
     }
 
-    // ============================================
-    // Level 0 - Educational Content
-    // ============================================
-
+    // ── Level 0 ───────────────────────────────────────────────────────────
     async getLevel0Content(): Promise<any> {
-        const response = await apiClient.get('/api/level0/content');
-        return response.data;
+        return (await apiClient.get('/api/level0/content')).data;
     }
 
-    // ============================================
-    // Level 1 - Code Generation
-    // ============================================
-
+    // ── Level 1 ───────────────────────────────────────────────────────────
     async generateAutomationCode(testDescription: string): Promise<any> {
         try {
-            const response = await apiClient.post('/api/level1/generate-code', {
-                test_description: testDescription
-            }, {
-                timeout: 150000 // 150 seconds specifically for this request
-            });
-            return response.data;
+            return (await apiClient.post('/api/level1/generate-code',
+                { test_description: testDescription },
+                { timeout: 150000 }
+            )).data;
         } catch (error: any) {
-            if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-                throw new Error('Request timed out. Please try with a shorter description or check if Ollama is running.');
+            if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+                throw new Error('Request timed out. Try a shorter description or check Ollama is running.');
             }
             throw error;
         }
     }
 
     async getTestExamples(): Promise<{ examples: any[] }> {
-        const response = await apiClient.get('/api/level1/examples');
-        return response.data;
+        return (await apiClient.get('/api/level1/examples')).data;
     }
 
     async checkLlamaHealth(): Promise<any> {
-        const response = await apiClient.get('/api/level1/health');
-        return response.data;
+        return (await apiClient.get('/api/level1/health')).data;
     }
 
-    // ============================================
-    // Production Mode - Repository & AI
-    // ============================================
-
+    // ── Production — repositories ─────────────────────────────────────────
     async getUserRepositories(token: string): Promise<any> {
-        const response = await apiClient.get('/api/production/repositories', {
-            params: { token }
-        });
-        return response.data;
+        return (await apiClient.get('/api/production/repositories', { params: { token } })).data;
     }
 
+    async getRepositoryTree(owner: string, repo: string, token: string): Promise<any> {
+        return (await apiClient.get(`/api/production/repository/${owner}/${repo}/tree`, { params: { token } })).data;
+    }
+
+    // ── Production — AI actions ───────────────────────────────────────────
+
+    /** Analyze Test Structure / Improve Test Structure */
     async analyzeCode(code: string, repoContext?: string): Promise<any> {
-        const response = await apiClient.post('/api/production/analyze-code', {
+        return (await apiClient.post('/api/production/analyze-code', {
             code,
-            repo_context: repoContext
-        });
-        return response.data;
+            repo_context: repoContext,
+        })).data;
     }
 
+    /** Generate New Tests */
     async generateTest(request: {
         repo_name: string;
         file_path: string;
         code_snippet: string;
         user_request: string;
     }): Promise<any> {
-        const response = await apiClient.post('/api/production/generate-test', request);
-        return response.data;
+        return (await apiClient.post('/api/production/generate-test', request)).data;
+    }
+
+    /**
+     * Free-form custom prompt — routes to /api/production/custom-prompt.
+     * Used by the bottom text input in ActionPanel.
+     */
+    async customPrompt(prompt: string, repoContext?: string): Promise<{ answer: string; model: string }> {
+        return (await apiClient.post('/api/production/custom-prompt', {
+            prompt,
+            repo_context: repoContext,
+        })).data;
     }
 }
 
