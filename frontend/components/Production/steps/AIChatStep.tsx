@@ -35,8 +35,9 @@ interface QuickAction {
 }
 
 interface AIChatStepProps {
-    config:  SessionConfig;
-    onReset: () => void;
+    config:   SessionConfig;
+    onReset:  () => void;
+    compact?: boolean;
 }
 
 /* ── Quick actions ───────────────────────────────────────────────────────── */
@@ -211,7 +212,7 @@ const renderContent = (content: string) => {
 
 /* ── Component ───────────────────────────────────────────────────────────── */
 
-const AIChatStep: React.FC<AIChatStepProps> = ({ config, onReset }) => {
+const AIChatStep: React.FC<AIChatStepProps> = ({ config, onReset, compact = false }) => {
     // History (persisted to localStorage)
     const [sessions,        setSessions]        = useState<ChatSession[]>(() => loadSessions());
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -384,10 +385,10 @@ const AIChatStep: React.FC<AIChatStepProps> = ({ config, onReset }) => {
     /* ── Render ──────────────────────────────────────────────────────── */
 
     return (
-        <div className="flex gap-3" style={{ height: 'calc(100vh - 155px)', minHeight: 500 }}>
+        <div className="flex gap-3" style={{ height: compact ? '100%' : 'calc(100vh - 155px)', minHeight: compact ? 0 : 500 }}>
 
             {/* ── SIDEBAR ─────────────────────────────────────────────── */}
-            <div className="w-56 flex-shrink-0 flex flex-col bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
+            {!compact && <div className="w-56 flex-shrink-0 flex flex-col bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
 
                 {/* Header */}
                 <div className="flex items-center justify-between px-3 py-3 border-b border-white/10 flex-shrink-0">
@@ -441,7 +442,7 @@ const AIChatStep: React.FC<AIChatStepProps> = ({ config, onReset }) => {
                         );
                     })}
                 </div>
-            </div>
+            </div>}
 
             {/* ── MAIN CHAT ────────────────────────────────────────────── */}
             <div className="flex-1 flex flex-col min-w-0">
