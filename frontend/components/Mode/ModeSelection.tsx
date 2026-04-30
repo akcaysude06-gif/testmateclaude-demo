@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BookOpen, Zap, ChevronRight } from 'lucide-react';
 import { ModeType } from '../../types';
 
@@ -6,7 +6,34 @@ interface ModeSelectionProps {
     onSelectMode: (mode: ModeType) => void;
 }
 
+const PREFS_KEY = 'testmate_user_preferences';
+
+function getPrefs(): { alwaysOpenProduction: boolean } {
+    try {
+        return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
+    } catch {
+        return { alwaysOpenProduction: false };
+    }
+}
+
 const ModeSelection: React.FC<ModeSelectionProps> = ({ onSelectMode }) => {
+    const [alwaysOpenProduction, setAlwaysOpenProduction] = useState(false);
+
+    useEffect(() => {
+        setAlwaysOpenProduction(!!getPrefs().alwaysOpenProduction);
+    }, []);
+
+    const handleCheckbox = (e: React.MouseEvent) => {
+        e.stopPropagation();
+    };
+
+    const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const checked = e.target.checked;
+        setAlwaysOpenProduction(checked);
+        const prefs = getPrefs();
+        localStorage.setItem(PREFS_KEY, JSON.stringify({ ...prefs, alwaysOpenProduction: checked }));
+    };
+
     return (
         <>
             <div className="text-center mb-12">
@@ -59,6 +86,18 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({ onSelectMode }) => {
                             <span>Repository Integration</span>
                         </div>
                     </div>
+                    <label
+                        className="flex items-center space-x-2 mt-5 cursor-pointer w-fit"
+                        onClick={handleCheckbox}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={alwaysOpenProduction}
+                            onChange={handleCheckboxChange}
+                            className="w-3.5 h-3.5 rounded accent-purple-400 cursor-pointer"
+                        />
+                        <span className="text-xs text-purple-300/70 select-none">Always open Production Mode</span>
+                    </label>
                 </div>
             </div>
         </>

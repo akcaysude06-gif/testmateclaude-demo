@@ -1,6 +1,30 @@
 import axios from 'axios';
 import { authUtils } from '../utils/auth';
 
+export interface JiraProject {
+    id:         string;
+    key:        string;
+    name:       string;
+    style:      string | null;
+    avatar_url: string | null;
+}
+
+export interface JiraIssue {
+    key:        string;
+    summary:    string;
+    status:     string;
+    issue_type: string;
+    priority:   string | null;
+    assignee:   string | null;
+}
+
+export interface JiraIssuesGrouped {
+    todo:        JiraIssue[];
+    in_progress: JiraIssue[];
+    in_review:   JiraIssue[];
+    done:        JiraIssue[];
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const apiClient = axios.create({
@@ -107,6 +131,65 @@ class ApiService {
             prompt,
             repo_context: repoContext,
         })).data;
+    }
+
+    // ── Production V2 — Jira & Gap Detection ─────────────────────────────────
+
+    async connectJira(
+        instanceUrl: string,
+        email:       string,
+        apiToken:    string,
+        projectKey:  string | undefined,
+        token:       string,
+    ): Promise<any> {
+        return (await apiClient.post(
+            '/api/production/v2/jira/connect',
+            { instance_url: instanceUrl, email, api_token: apiToken, project_key: projectKey },
+            { params: { token } },
+        )).data;
+    }
+
+    async getJiraStatus(token: string): Promise<any> {
+        return (await apiClient.get('/api/production/v2/jira/status', { params: { token } })).data;
+    }
+
+    async analyzeGaps(repoOwner: string, repoName: string, token: string): Promise<any> {
+        return (await apiClient.post(
+            '/api/production/v2/gaps/analyze',
+            { repo_owner: repoOwner, repo_name: repoName },
+            { params: { token }, timeout: 120000 },
+        )).data;
+    }
+
+    async generateTestsForGap(
+        gapType:            string,
+        taskKey:            string,
+        taskSummary:        string,
+        acceptanceCriteria: string,
+        existingCode:       string,
+        token:              string,
+    ): Promise<any> {
+        return (await apiClient.post(
+            '/api/production/v2/gaps/generate-tests',
+            {
+                gap_type:            gapType,
+                task_key:            taskKey,
+                task_summary:        taskSummary,
+                acceptance_criteria: acceptanceCriteria,
+                existing_code:       existingCode,
+            },
+            { params: { token }, timeout: 60000 },
+        )).data;
+    }
+
+    // ── Jira OAuth ────────────────────────────────────────────────────────────
+
+    async getJiraOAuthProjects(token: string): Promise<{ projects: JiraProject[] }> {
+        return (await apiClient.get('/api/jira/projects', { params: { token } })).data;
+    }
+
+    async getJiraProjectIssues(projectKey: string, token: string): Promise<JiraIssuesGrouped> {
+        return (await apiClient.get(`/api/jira/project/${projectKey}/issues`, { params: { token } })).data;
     }
 }
 

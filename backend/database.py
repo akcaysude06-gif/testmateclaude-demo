@@ -1,7 +1,8 @@
 """
 Database configuration and models
 """
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean
+import enum
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Enum as SAEnum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -36,6 +37,52 @@ class User(Base):
 	# Progress tracking
 	level0_completed = Column(Boolean, default=False)
 	level1_completed = Column(Boolean, default=False)
+
+	# Jira OAuth 2.0
+	jira_access_token = Column(String, nullable=True)
+	jira_refresh_token = Column(String, nullable=True)
+	jira_cloud_id = Column(String, nullable=True)
+
+class GapTypeEnum(enum.Enum):
+	not_started = "not_started"
+	untested    = "untested"
+	complete    = "complete"
+
+
+class JiraIntegration(Base):
+	__tablename__ = "jira_integrations"
+
+	id           = Column(Integer, primary_key=True, index=True)
+	user_id      = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+	instance_url = Column(String, nullable=False)
+	email        = Column(String, nullable=False)
+	api_token    = Column(String, nullable=False)
+	project_key  = Column(String, nullable=True)
+	created_at   = Column(DateTime, default=datetime.utcnow)
+
+
+class JiraTask(Base):
+	__tablename__ = "jira_tasks"
+
+	id                  = Column(Integer, primary_key=True, index=True)
+	jira_integration_id = Column(Integer, ForeignKey("jira_integrations.id"), nullable=False, index=True)
+	task_key            = Column(String, nullable=False, index=True)
+	summary             = Column(String, nullable=False)
+	status              = Column(String, nullable=True)
+	acceptance_criteria = Column(Text, nullable=True)
+	updated_at          = Column(DateTime, default=datetime.utcnow)
+
+
+class ImplementationGap(Base):
+	__tablename__ = "implementation_gaps"
+
+	id              = Column(Integer, primary_key=True, index=True)
+	jira_task_id    = Column(Integer, ForeignKey("jira_tasks.id"), nullable=False, index=True)
+	gap_type        = Column(SAEnum(GapTypeEnum), nullable=False)
+	affected_files  = Column(Text, nullable=True)
+	generated_tests = Column(Text, nullable=True)
+	created_at      = Column(DateTime, default=datetime.utcnow)
+
 
 # Create all tables
 def init_db():

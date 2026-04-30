@@ -30,6 +30,15 @@ export default function Home() {
                     const userData = await apiService.getCurrentUser();
                     setUser(userData);
                     setIsAuthenticated(true);
+                    try {
+                        const prefs = JSON.parse(localStorage.getItem('testmate_user_preferences') || '{}');
+                        if (prefs.alwaysOpenProduction && !window.location.hash) {
+                            setCurrentMode('production');
+                            window.location.hash = 'production';
+                        }
+                    } catch {
+                        // ignore malformed prefs
+                    }
                 } catch (error) {
                     console.error('Token verification failed:', error);
                     authUtils.removeToken();

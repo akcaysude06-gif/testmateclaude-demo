@@ -335,6 +335,112 @@ if __name__ == "__main__":
 
 		return suggestions[:10]  # Return top 10 suggestions
 
+	def generate_tests_from_gaps(
+		self,
+		task_summary: str,
+		acceptance_criteria: str,
+		existing_code: str,
+		gap_type: str,
+	) -> dict:
+		if gap_type == "not_started":
+			prompt = f"""You are a senior test automation engineer.
+A Jira task has NO implementation yet.
+
+Task: {task_summary}
+Acceptance Criteria:
+{acceptance_criteria or "Not specified"}
+
+Generate a complete Selenium Python test suite FROM SCRATCH covering the acceptance criteria.
+- Use pytest as the test runner
+- Use Selenium with WebDriverWait and explicit waits (no time.sleep)
+- Include setup/teardown fixtures
+- Cover each acceptance criterion as a separate test case
+
+```python
+[complete test code here]
+```
+
+EXPLANATION:
+[What the tests cover and what gap they address]"""
+
+		elif gap_type == "untested":
+			prompt = f"""You are a senior test automation engineer.
+Code exists but has NO tests.
+
+Task: {task_summary}
+Acceptance Criteria:
+{acceptance_criteria or "Not specified"}
+
+Existing Code:
+```
+{existing_code or "# (code not provided — generate based on task summary)"}
+```
+
+Write a complete Selenium/pytest test suite for this implementation.
+Focus on user-facing behaviour, edge cases, and error states.
+
+```python
+[complete test code here]
+```
+
+EXPLANATION:
+[What the tests cover and why these scenarios were chosen]"""
+
+		else:
+			prompt = f"""You are a senior test automation engineer reviewing existing coverage.
+
+Task: {task_summary}
+Acceptance Criteria:
+{acceptance_criteria or "Not specified"}
+
+Existing Code:
+```
+{existing_code or "# (code not provided)"}
+```
+
+Suggest ADDITIONAL edge case tests or improvements:
+- Boundary value tests
+- Negative / error-handling cases
+- Any acceptance criteria not yet covered
+
+```python
+[additional test code here]
+```
+
+EXPLANATION:
+[What gaps in coverage these tests address]"""
+
+		try:
+			response = self.generate_text(prompt, max_tokens=3000)
+
+			code = ""
+			explanation = ""
+
+			if "```python" in response:
+				code_start = response.find("```python") + 9
+				code_end   = response.find("```", code_start)
+				if code_end != -1:
+					code = response[code_start:code_end].strip()
+
+			if "EXPLANATION:" in response:
+				explanation = response[response.find("EXPLANATION:") + 12:].strip()
+
+			return {
+				"code":        code or response,
+				"explanation": explanation or "Generated test code for Jira task gap",
+				"language":    "python",
+				"gap_type":    gap_type,
+				"model":       "claude-sonnet-4",
+			}
+
+		except HTTPException:
+			raise
+		except Exception as e:
+			raise HTTPException(
+				status_code=500,
+				detail=f"Failed to generate tests from gap: {str(e)}"
+			)
+
 	def check_availability(self) -> bool:
 		"""
 		Check if Claude API is available

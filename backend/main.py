@@ -4,7 +4,7 @@ TestMate API - Main Application
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config.settings import settings
-from routes import level0, level1, production, auth
+from routes import level0, level1, production, auth, production_v2, jira
 from database import init_db
 from services.llama_service import llama_service
 # Initialize database
@@ -31,6 +31,8 @@ app.include_router(auth.router)  # Add auth router
 app.include_router(level0.router)
 app.include_router(level1.router)
 app.include_router(production.router)
+app.include_router(production_v2.router)
+app.include_router(jira.router)
 
 @app.get("/")
 async def root():

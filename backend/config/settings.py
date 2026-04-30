@@ -20,6 +20,14 @@ class Settings:
 	# Accept both 3000 and 3001
 	GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "http://localhost:3000/auth/callback")
 
+	# Jira OAuth 2.0 (3LO)
+	JIRA_CLIENT_ID = os.getenv("JIRA_CLIENT_ID")
+	JIRA_CLIENT_SECRET = os.getenv("JIRA_CLIENT_SECRET")
+	JIRA_REDIRECT_URI = os.getenv("JIRA_REDIRECT_URI", "http://localhost:8000/api/jira/callback")
+
+	# Frontend base URL — used for post-OAuth redirects
+	FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
 	# JWT
 	JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-this")
 	JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
