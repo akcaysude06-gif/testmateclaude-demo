@@ -136,8 +136,10 @@ async def analyze_gaps(
         logger.error("gaps/analyze 400: no JiraIntegration row for user_id=%s", user.id)
         raise HTTPException(status_code=400, detail="No Jira integration configured. Connect first.")
     if not integration.project_key:
-        logger.error("gaps/analyze 400: project_key is NULL for user_id=%s integration_id=%s", user.id, integration.id)
-        raise HTTPException(status_code=400, detail="No Jira project_key set. Reconnect with a project key.")
+        raise HTTPException(
+            status_code=400,
+            detail="No Jira project key set. Go to Production → your project → Connect Jira and enter a project key (e.g. SCRUM).",
+        )
     logger.info("gaps/analyze: project=%s instance=%s", integration.project_key, integration.instance_url)
 
     loop = asyncio.get_running_loop()
@@ -232,7 +234,11 @@ async def analyze_gaps(
         await recurse("")
         return flat
 
-    repo_files = await get_flat_files(request.repo_owner, request.repo_name)
+    try:
+        repo_files = await get_flat_files(request.repo_owner, request.repo_name)
+    except Exception as exc:
+        logger.error("Failed to fetch repo files for %s/%s: %s", request.repo_owner, request.repo_name, exc)
+        raise HTTPException(status_code=500, detail=f"Failed to fetch repository files: {exc}")
 
     # 4. Run gap detection
     result = gap_detection_service.analyze_gaps(

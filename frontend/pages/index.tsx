@@ -167,7 +167,7 @@ export default function Home() {
 
     // Authenticated - show main app
     return (
-        <Layout onLogout={handleLogout} user={user}>
+        <Layout onLogout={handleLogout} user={user} fullWidth={currentMode === 'production'} onLogoClick={handleBackToModes}>
             {!currentMode && (
                 <ModeSelection onSelectMode={handleSelectMode} />
             )}

@@ -54,7 +54,7 @@ const JiraConnect: React.FC<JiraConnectProps> = ({ onConnected, onSkip }) => {
             return;
         }
         if (!projectKey.trim()) {
-            setError('Project key is required (e.g. SCRUM). You can find it in your Jira project URL.');
+            setError('Project key is required (e.g. SCRUM). Find it in your Jira project URL: yourcompany.atlassian.net/jira/software/projects/SCRUM/boards');
             return;
         }
         setLoading(true);

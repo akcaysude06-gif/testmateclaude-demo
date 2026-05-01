@@ -102,6 +102,10 @@ class ApiService {
         return (await apiClient.get(`/api/production/repository/${owner}/${repo}/tree`, { params: { token } })).data;
     }
 
+    async getFileContent(owner: string, repo: string, path: string, token: string): Promise<{ content: string; path: string }> {
+        return (await apiClient.get(`/api/production/repository/${owner}/${repo}/file`, { params: { path, token } })).data;
+    }
+
     // ── Production — AI actions ───────────────────────────────────────────
 
     /** Analyze Test Structure / Improve Test Structure */

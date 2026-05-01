@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronRight, Sparkles, MessageSquare, X } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { authUtils } from '../../utils/auth';
@@ -86,7 +86,35 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
     // Panel / project state
     const [savedProjects,   setSavedProjects]  = useState<SavedProject[]>(() => loadSavedProjects());
     const [activeProjectId, setActiveProjectId] = useState<string | null>(persisted?.activeProjectId ?? null);
-    const [showAIChat,      setShowAIChat]      = useState(false);
+    const [showAIChat,  setShowAIChat]  = useState(false);
+    const [chatWidth,   setChatWidth]   = useState(420);
+    const chatContainerRef = useRef<HTMLDivElement>(null);
+    const isResizing       = useRef(false);
+
+    const onResizeMouseDown = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        isResizing.current = true;
+        document.body.style.cursor    = 'ew-resize';
+        document.body.style.userSelect = 'none';
+
+        const onMouseMove = (ev: MouseEvent) => {
+            if (!isResizing.current || !chatContainerRef.current) return;
+            const containerRight = chatContainerRef.current.getBoundingClientRect().right;
+            const newWidth = Math.max(300, Math.min(containerRight - ev.clientX, containerRight - 40));
+            setChatWidth(newWidth);
+        };
+
+        const onMouseUp = () => {
+            isResizing.current = false;
+            document.body.style.cursor    = '';
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup',   onMouseUp);
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup',   onMouseUp);
+    }, []);
 
     const activeProject = savedProjects.find(p => p.id === activeProjectId) ?? null;
 
@@ -238,11 +266,20 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
 
     return (
         <div
-            className="max-w-[1400px] mx-auto flex gap-4"
-            style={{ height: 'calc(100vh - 5rem)' }}
+            ref={chatContainerRef}
+            className="w-full min-w-0"
+            style={{
+                height: 'calc(100vh - 5rem)',
+                display: 'grid',
+                gridTemplateColumns: showAIChat && aiSessionConfig
+                    ? `240px minmax(0, 1fr) ${chatWidth}px`
+                    : '240px minmax(0, 1fr)',
+                gap: '1rem',
+                overflow: 'hidden',
+            }}
         >
             {/* ── Sidebar ─────────────────────────────────────────────────── */}
-            <div className="flex-shrink-0" style={{ height: '100%' }}>
+            <div className="min-h-0">
                 <ConnectedProjectsPanel
                     projects={savedProjects}
                     activeProjectId={activeProjectId}
@@ -252,8 +289,8 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
                 />
             </div>
 
-            {/* ── Main + AI chat ───────────────────────────────────────────── */}
-            <div className="flex-1 min-w-0 flex overflow-hidden" style={{ height: '100%' }}>
+            {/* ── Main + AI chat wrapper ───────────────────────────────────── */}
+            <div className="min-w-0 min-h-0 flex flex-col overflow-hidden">
 
                 {/* Main content area */}
                 <div className="flex-1 min-w-0 overflow-y-auto">
@@ -352,7 +389,7 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
                     ) : (
 
                         /* ── Dashboard ───────────────────────────────────── */
-                        <div className="h-full py-4 pr-2">
+                        <div className="h-full w-full min-w-0 py-4 pr-2">
                             {/* Top bar with AI Chat toggle */}
                             {activeProject && (
                                 <div className="flex items-center justify-end mb-3">
@@ -378,35 +415,37 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
                         </div>
                     )}
                 </div>
-
-                {/* ── AI Chat slide-in panel (25%) ─────────────────────────── */}
-                {showAIChat && aiSessionConfig && (
-                    <div
-                        className="flex-shrink-0 flex flex-col border-l border-white/10 bg-slate-900/50 overflow-hidden"
-                        style={{ width: '25%', minWidth: 300 }}
-                    >
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
-                            <div className="flex items-center space-x-2">
-                                <MessageSquare className="w-4 h-4 text-purple-400" />
-                                <span className="text-sm font-semibold text-white">AI Chat</span>
-                            </div>
-                            <button
-                                onClick={() => setShowAIChat(false)}
-                                className="p-1 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-all"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        </div>
-                        <div className="flex-1 overflow-hidden">
-                            <AIChatStep
-                                config={aiSessionConfig}
-                                onReset={() => setShowAIChat(false)}
-                                compact
-                            />
-                        </div>
-                    </div>
-                )}
             </div>
+
+            {/* ── AI Chat resizable panel (3rd grid column) ────────────────── */}
+            {showAIChat && aiSessionConfig && (
+                <div className="relative flex flex-col border-l border-white/10 bg-slate-900/50 overflow-hidden min-h-0">
+                    {/* Drag handle on the left edge */}
+                    <div
+                        onMouseDown={onResizeMouseDown}
+                        className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-ew-resize hover:bg-purple-500/50 active:bg-purple-500/70 transition-colors"
+                    />
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
+                        <div className="flex items-center space-x-2">
+                            <MessageSquare className="w-4 h-4 text-purple-400" />
+                            <span className="text-sm font-semibold text-white">AI Chat</span>
+                        </div>
+                        <button
+                            onClick={() => setShowAIChat(false)}
+                            className="p-1 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-all"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                    <div className="flex-1 overflow-hidden">
+                        <AIChatStep
+                            config={aiSessionConfig}
+                            onReset={() => setShowAIChat(false)}
+                            compact
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

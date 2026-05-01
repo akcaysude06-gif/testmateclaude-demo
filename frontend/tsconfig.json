@@ -20,12 +20,17 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     }
   },
   "include": [
     "frontend/**/*.ts",
     "frontend/**/*.tsx",
     "next-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules"
   ]
 }

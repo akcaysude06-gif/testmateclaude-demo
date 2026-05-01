@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from config.settings import settings
-from database import get_db, User
+from database import get_db, User, JiraIntegration
 from services.auth_service import auth_service
 from services.jira_service import jira_oauth_service
 
@@ -82,6 +82,23 @@ async def jira_callback(
         user.jira_refresh_token = refresh_token
         user.jira_cloud_id = cloud_id
         db.commit()
+
+        integration = db.query(JiraIntegration).filter(
+            JiraIntegration.user_id == user.id
+        ).first()
+        if not integration:
+            integration = JiraIntegration(
+                user_id=user.id,
+                instance_url=f"https://api.atlassian.com/ex/jira/{cloud_id}",
+                email="oauth",
+                api_token=access_token,
+            )
+            db.add(integration)
+        else:
+            integration.api_token = access_token
+            integration.instance_url = f"https://api.atlassian.com/ex/jira/{cloud_id}"
+        db.commit()
+
     except HTTPException:
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/#production?jira_error=token_exchange_failed"

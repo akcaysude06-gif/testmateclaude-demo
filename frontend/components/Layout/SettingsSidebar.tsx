@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Menu, X, Palette, Shield, BookOpen, Check, PanelLeft, PanelRight } from 'lucide-react';
 
 const THEMES = [
-    { id: 'purple', label: 'Purple', from: '#1e1b4b', via: '#581c87', accent: '#a855f7' },
-    { id: 'ocean',  label: 'Ocean',  from: '#0c1a2e', via: '#1e3a5f', accent: '#38bdf8' },
-    { id: 'forest', label: 'Forest', from: '#0d1f12', via: '#14532d', accent: '#4ade80' },
-    { id: 'rose',   label: 'Rose',   from: '#1c0a0a', via: '#7f1d1d', accent: '#fb7185' },
+    { id: 'lavender',    label: 'Lavender',    from: '#2e2440', via: '#4a3060', accent: '#c4b5fd' },
+    { id: 'butter',      label: 'Butter',      from: '#4a4520', via: '#7a6e30', accent: '#fde68a' },
+    { id: 'pink',        label: 'Pink',        from: '#2e1a28', via: '#5c3050', accent: '#fbc8e0' },
+    { id: 'periwinkle',  label: 'Periwinkle',  from: '#1a2235', via: '#1e3050', accent: '#a5b4fc' },
 ];
 
 const THEME_KEY    = 'testmate_color_theme';
@@ -21,20 +21,22 @@ function applyTheme(themeId: string) {
 
 interface SettingsSidebarProps {
     onOpenBeginnerMode: () => void;
+    onSideChange?: (side: 'left' | 'right') => void;
 }
 
-const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode }) => {
+const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode, onSideChange }) => {
     const [open, setOpen]             = useState(false);
-    const [activeTheme, setActiveTheme] = useState<string>('purple');
+    const [activeTheme, setActiveTheme] = useState<string>('lavender');
     const [side, setSide]             = useState<'left' | 'right'>('right');
 
     useEffect(() => {
-        const savedTheme = localStorage.getItem(THEME_KEY) || 'purple';
+        const savedTheme = localStorage.getItem(THEME_KEY) || 'lavender';
         setActiveTheme(savedTheme);
         applyTheme(savedTheme);
 
         const savedSide = (localStorage.getItem(POSITION_KEY) || 'right') as 'left' | 'right';
         setSide(savedSide);
+        onSideChange?.(savedSide);
     }, []);
 
     const handleTheme = (id: string) => {
@@ -47,6 +49,8 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode })
         const next = side === 'right' ? 'left' : 'right';
         setSide(next);
         localStorage.setItem(POSITION_KEY, next);
+        onSideChange?.(next);
+        setOpen(false);
     };
 
     const handlePrivacy = () => {
@@ -58,9 +62,23 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode })
 
     return (
         <>
-            {/* Sidebar panel */}
+            {/* Floating toggle button — only visible when closed */}
+            {!open && (
+                <button
+                    onClick={() => setOpen(true)}
+                    className={`fixed top-2 ${positionClass} z-50 m-2 w-11 h-11 flex items-center justify-center
+                                text-white/60 hover:text-white transition-colors rounded-md
+                                bg-black/60 backdrop-blur-xl border border-white/10 hover:bg-white/10 shadow-lg`}
+                    aria-label="Open settings"
+                >
+                    <Menu className="w-5 h-5" />
+                </button>
+            )}
+
+            {/* Sidebar panel — only rendered when open */}
+            {open && (
             <div
-                style={{ width: open ? 260 : 48, transition: 'width 0.25s ease' }}
+                style={{ width: 260 }}
                 className={`fixed top-0 ${positionClass} h-screen z-50 flex flex-col
                             bg-black/40 backdrop-blur-xl ${borderClass} border-white/10
                             overflow-hidden`}
@@ -68,19 +86,18 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode })
                 {/* Toggle button */}
                 <div className="flex items-center justify-center h-16 flex-shrink-0 border-b border-white/10">
                     <button
-                        onClick={() => setOpen(o => !o)}
+                        onClick={() => setOpen(false)}
                         className="w-8 h-8 flex items-center justify-center
                                    text-white/60 hover:text-white transition-colors rounded-md
                                    hover:bg-white/10"
-                        aria-label="Toggle settings"
+                        aria-label="Close settings"
                     >
-                        {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                        <X className="w-5 h-5" />
                     </button>
                 </div>
 
                 {/* Content */}
                 <div
-                    style={{ opacity: open ? 1 : 0, transition: 'opacity 0.15s ease', pointerEvents: open ? 'auto' : 'none' }}
                     className="flex flex-col flex-1 overflow-y-auto px-4 py-5 gap-6 min-w-[212px]"
                 >
                     {/* Color Theme */}
@@ -188,6 +205,7 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode })
                     </section>
                 </div>
             </div>
+            )}
 
             {/* Overlay to close */}
             {open && (

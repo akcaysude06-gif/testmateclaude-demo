@@ -4,17 +4,18 @@ import { LogOut, Sparkles, User } from 'lucide-react';
 interface NavbarProps {
     onLogout: () => void;
     user?: any;
+    onLogoClick?: () => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ onLogout, user }) => {
+const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick }) => {
     return (
         <nav className="bg-black/20 backdrop-blur-lg border-b border-white/10">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="px-16">
                 <div className="flex items-center justify-between h-16">
-                    <div className="flex items-center space-x-3">
+                    <button onClick={onLogoClick} className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
                         <Sparkles className="w-8 h-8 text-purple-400" />
                         <span className="text-white font-bold text-xl">TestMate</span>
-                    </div>
+                    </button>
 
                     {user && (
                         <div className="flex items-center space-x-4">

@@ -94,7 +94,7 @@ const RepoPickerView: React.FC<{ onSelect: (repo: Repository) => void }> = ({ on
                 </div>
             )}
             {!loading && !error && repos.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto">
+                <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
                     {repos.map(repo => (
                         <button
                             key={repo.id}
@@ -175,9 +175,41 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     onSelectRepo,
     onJiraConnected,
 }) => {
-    const [showJiraConnect, setShowJiraConnect] = useState(false);
+    const [showJiraConnect,    setShowJiraConnect]    = useState(false);
+    const [jiraVerified,       setJiraVerified]       = useState<boolean | null>(null);
+    const [jiraVerifyError,    setJiraVerifyError]    = useState<string | null>(null);
 
-    useEffect(() => { setShowJiraConnect(false); }, [activeProject?.id]);
+    useEffect(() => {
+        setShowJiraConnect(false);
+        setJiraVerified(null);
+        setJiraVerifyError(null);
+    }, [activeProject?.id]);
+
+    // When local state says Jira is connected, verify with the backend
+    useEffect(() => {
+        if (!activeProject?.jira) return;
+        setJiraVerified(null);
+        setJiraVerifyError(null);
+        (async () => {
+            try {
+                const token = authUtils.getToken();
+                const status = await apiService.getJiraStatus(token!);
+                if (status.connected && status.project_key) {
+                    setJiraVerified(true);
+                } else {
+                    setJiraVerified(false);
+                    setJiraVerifyError(
+                        status.connected && !status.project_key
+                            ? 'Jira is connected but missing a project key. Please reconnect.'
+                            : 'Jira connection not found on server. Please reconnect.'
+                    );
+                }
+            } catch {
+                setJiraVerified(false);
+                setJiraVerifyError('Could not verify Jira connection. Please reconnect.');
+            }
+        })();
+    }, [activeProject?.id, activeProject?.jira]);
 
     // No project → repo picker
     if (!activeProject) {
@@ -190,13 +222,15 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     // Jira connect inline flow
     if (showJiraConnect) {
         return (
-            <div className="h-full overflow-y-auto">
+            <div>
                 <ProjectHeader project={activeProject} jiraConnected={false} onConnectJira={() => {}} />
                 <JiraConnect
                     onConnected={(key) => {
                         upsertSavedProject({ ...activeProject, jira: { key, name: key, avatar_url: null } });
                         onJiraConnected(activeProject.id, key, key);
                         setShowJiraConnect(false);
+                        setJiraVerified(true);
+                        setJiraVerifyError(null);
                     }}
                     onSkip={() => setShowJiraConnect(false)}
                 />
@@ -204,10 +238,28 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         );
     }
 
-    // Jira connected → full gap report
-    if (jiraConnected) {
+    // Jira connected locally but failed backend verification → show reconnect prompt
+    if (jiraConnected && jiraVerified === false) {
         return (
-            <div className="h-full overflow-y-auto">
+            <div>
+                <ProjectHeader project={activeProject} jiraConnected={false} onConnectJira={() => setShowJiraConnect(true)} />
+                <div className="mt-4 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-6 flex flex-col items-start space-y-3">
+                    <p className="text-yellow-300 text-sm font-medium">{jiraVerifyError}</p>
+                    <button
+                        onClick={() => setShowJiraConnect(true)}
+                        className="px-4 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 hover:text-white text-sm font-medium transition-all"
+                    >
+                        Reconnect Jira
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // Jira connected → full gap report (show while verifying or after verified)
+    if (jiraConnected && (jiraVerified === true || jiraVerified === null)) {
+        return (
+            <div>
                 <ProjectHeader project={activeProject} jiraConnected onConnectJira={() => {}} />
                 <div className="flex items-center space-x-2 mb-4">
                     <Zap className="w-4 h-4 text-purple-400" />
@@ -221,7 +273,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
     // No Jira → CTA card
     return (
-        <div className="h-full overflow-y-auto">
+        <div>
             <ProjectHeader project={activeProject} jiraConnected={false} onConnectJira={() => setShowJiraConnect(true)} />
 
             {/* Connect Jira CTA */}
