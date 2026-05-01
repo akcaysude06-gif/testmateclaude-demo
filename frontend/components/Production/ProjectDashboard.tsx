@@ -13,9 +13,10 @@ import JiraConnect from './JiraConnect';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ProjectDashboardProps {
-    activeProject:   SavedProject | null;
-    onSelectRepo:    (repo: Repository) => void;
-    onJiraConnected: (projectId: string, key: string, name: string) => void;
+    activeProject:    SavedProject | null;
+    onSelectRepo:     (repo: Repository) => void;
+    onJiraConnected:  (projectId: string, key: string, name: string) => void;
+    onSimulateResult: (result: any) => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -174,6 +175,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     activeProject,
     onSelectRepo,
     onJiraConnected,
+    onSimulateResult,
 }) => {
     const [showJiraConnect,    setShowJiraConnect]    = useState(false);
     const [jiraVerified,       setJiraVerified]       = useState<boolean | null>(null);
@@ -266,7 +268,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                     <span className="text-sm font-semibold text-white">Gap Analysis</span>
                     <span className="text-xs text-slate-500">— {repoName} × {activeProject.jira!.key}</span>
                 </div>
-                <GapReport repoOwner={owner} repoName={repoName} onSkip={() => {}} />
+                <GapReport repoOwner={owner} repoName={repoName} onSkip={() => {}} onSimulateResult={onSimulateResult} />
             </div>
         );
     }

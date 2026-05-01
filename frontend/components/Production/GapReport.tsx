@@ -4,6 +4,7 @@ import {
     ChevronDown, Code2, Loader2, Wand2,
     ListTodo, PlayCircle, CheckCheck, X,
     FileCode2, ChevronRight as ChevronRightIcon,
+    FlaskConical, Plus, Search,
 } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { authUtils } from '../../utils/auth';
@@ -29,10 +30,19 @@ interface GapStats {
     complete_pct:    number;
 }
 
+interface SimulateResult {
+    verdict:     string;
+    explanation: string;
+    test_code:   string;
+    task_key:    string;
+    task_summary: string;
+}
+
 interface GapReportProps {
-    repoOwner: string;
-    repoName:  string;
-    onSkip:    () => void;
+    repoOwner:        string;
+    repoName:         string;
+    onSkip:           () => void;
+    onSimulateResult: (result: SimulateResult) => void;
 }
 
 type SprintTab = 'todo' | 'in_progress' | 'done';
@@ -217,18 +227,34 @@ const CodePanel: React.FC<{
     );
 };
 
-const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip }) => {
-    const [loading,        setLoading]        = useState(false);
-    const [error,          setError]          = useState<string | null>(null);
-    const [stats,          setStats]          = useState<GapStats | null>(null);
-    const [gaps,           setGaps]           = useState<GapItem[]>([]);
-    const [activeTab,      setActiveTab]      = useState<SprintTab>('in_progress');
-    const [expanded,       setExpanded]       = useState<Set<string>>(new Set());
-    const [generating,     setGenerating]     = useState<string | null>(null);
-    const [generatedTests, setGeneratedTests] = useState<Record<string, string>>({});
-    const [filePreview,    setFilePreview]    = useState<FilePreview | null>(null);
+const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSimulateResult }) => {
+    const [loading,           setLoading]           = useState(false);
+    const [error,             setError]             = useState<string | null>(null);
+    const [stats,             setStats]             = useState<GapStats | null>(null);
+    const [gaps,              setGaps]              = useState<GapItem[]>([]);
+    const [activeTab,         setActiveTab]         = useState<SprintTab>('in_progress');
+    const [expanded,          setExpanded]          = useState<Set<string>>(new Set());
+    const [simulating,        setSimulating]        = useState<string | null>(null);
+    const [filePreview,       setFilePreview]       = useState<FilePreview | null>(null);
+    const [editedSources,     setEditedSources]     = useState<Record<string, string[]>>({});
+    const [allRepoFiles,      setAllRepoFiles]      = useState<string[]>([]);
+    const [addingFileFor,     setAddingFileFor]     = useState<string | null>(null);
+    const [fileSearchQuery,   setFileSearchQuery]   = useState<Record<string, string>>({});
 
-    useEffect(() => { runAnalysis(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        runAnalysis();
+        loadAllRepoFiles();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const loadAllRepoFiles = async () => {
+        try {
+            const token = authUtils.getToken();
+            const files = await apiService.getRepoFlatFiles(repoOwner, repoName, token!);
+            setAllRepoFiles(files);
+        } catch {
+            // non-critical — add source file search just won't work
+        }
+    };
 
     const runAnalysis = async () => {
         setLoading(true);
@@ -259,26 +285,47 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip }) =>
         });
     };
 
-    const handleGenerateTests = async (gap: GapItem) => {
-        setGenerating(gap.task_key);
+    const effectiveSourceFiles = (gap: GapItem): string[] =>
+        editedSources[gap.task_key] ?? gap.source_files;
+
+    const removeSourceFile = (taskKey: string, filePath: string, originalFiles: string[]) => {
+        const current = editedSources[taskKey] ?? originalFiles;
+        setEditedSources(prev => ({ ...prev, [taskKey]: current.filter(f => f !== filePath) }));
+    };
+
+    const addSourceFile = (taskKey: string, filePath: string, originalFiles: string[]) => {
+        const current = editedSources[taskKey] ?? originalFiles;
+        if (current.includes(filePath)) return;
+        setEditedSources(prev => ({ ...prev, [taskKey]: [...current, filePath] }));
+        setAddingFileFor(null);
+        setFileSearchQuery(prev => ({ ...prev, [taskKey]: '' }));
+    };
+
+    const handleSimulateTests = async (gap: GapItem) => {
+        setSimulating(gap.task_key);
         try {
             const token = authUtils.getToken();
-            const res   = await apiService.generateTestsForGap(
+            const res   = await apiService.simulateTests(
                 gap.gap_type,
                 gap.task_key,
                 gap.summary,
                 gap.acceptance_criteria || '',
-                '',
+                effectiveSourceFiles(gap),
+                repoOwner,
+                repoName,
                 token!,
             );
-            setGeneratedTests(prev => ({ ...prev, [gap.task_key]: res.code }));
+            onSimulateResult({ ...res, task_key: gap.task_key, task_summary: gap.summary });
         } catch (err: any) {
-            setGeneratedTests(prev => ({
-                ...prev,
-                [gap.task_key]: `# Error: ${err.response?.data?.detail || 'Generation failed'}`,
-            }));
+            onSimulateResult({
+                verdict:      'ERROR',
+                explanation:  err.response?.data?.detail || 'Simulation failed.',
+                test_code:    '',
+                task_key:     gap.task_key,
+                task_summary: gap.summary,
+            });
         } finally {
-            setGenerating(null);
+            setSimulating(null);
         }
     };
 
@@ -409,63 +456,135 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip }) =>
                         {visibleGaps.map(gap => {
                             const m            = GAP_META[gap.gap_type];
                             const isExpanded   = expanded.has(gap.task_key);
-                            const isGenerating = generating === gap.task_key;
-                            const genCode      = generatedTests[gap.task_key];
+                            const isSimulating = simulating === gap.task_key;
 
                             return (
                                 <div
                                     key={gap.task_key}
                                     className="bg-white/5 border border-white/10 rounded-xl overflow-hidden"
                                 >
-                                    <button
-                                        onClick={() => toggleExpand(gap.task_key)}
-                                        className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-white/5 transition-colors text-left"
-                                    >
-                                        {isExpanded
-                                            ? <ChevronDown className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                                            : <ChevronRightIcon className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                                        }
-                                        <span className="text-xs font-mono text-slate-500 flex-shrink-0">{gap.task_key}</span>
-                                        <span className="text-sm text-white flex-1 truncate">{gap.summary}</span>
-                                        <span className="text-xs text-slate-400 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full flex-shrink-0 hidden sm:block">
-                                            {gap.status}
-                                        </span>
-                                        <span className={`flex items-center space-x-1 text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${m.badge}`}>
-                                            {m.icon}
-                                            <span>{m.label}</span>
-                                        </span>
-                                    </button>
+                                    <div className="flex items-center px-4 py-3">
+                                        <button
+                                            onClick={() => toggleExpand(gap.task_key)}
+                                            className="flex-1 flex items-center space-x-3 hover:bg-white/5 transition-colors text-left min-w-0"
+                                        >
+                                            {isExpanded
+                                                ? <ChevronDown className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                                                : <ChevronRightIcon className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                                            }
+                                            <span className="text-xs font-mono text-slate-500 flex-shrink-0">{gap.task_key}</span>
+                                            <span className="text-sm text-white flex-1 truncate">{gap.summary}</span>
+                                            <span className="text-xs text-slate-400 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full flex-shrink-0 hidden sm:block">
+                                                {gap.status}
+                                            </span>
+                                            <span className={`flex items-center space-x-1 text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${m.badge}`}>
+                                                {m.icon}
+                                                <span>{m.label}</span>
+                                            </span>
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleSimulateTests(gap); }}
+                                            disabled={isSimulating}
+                                            className="ml-3 flex-shrink-0 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 hover:border-indigo-400 text-indigo-300 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {isSimulating
+                                                ? <><Loader2 className="w-3 h-3 animate-spin" /><span>Simulating…</span></>
+                                                : <><FlaskConical className="w-3 h-3" /><span>Simulate Tests</span></>
+                                            }
+                                        </button>
+                                    </div>
 
                                     {isExpanded && (
                                         <div className="px-4 pb-4 space-y-3 border-t border-white/5">
-                                            {gap.source_files.length > 0 && (
-                                                <div>
-                                                    <p className="text-xs text-slate-500 mb-1.5 font-medium mt-3">
-                                                        Source files
-                                                        <span className="ml-1.5 text-slate-600 font-normal">(click to preview)</span>
-                                                    </p>
-                                                    <div className="flex flex-wrap gap-1.5">
-                                                        {gap.source_files.map(f => {
-                                                            const isActive = filePreview?.path === f;
-                                                            return (
-                                                                <button
-                                                                    key={f}
-                                                                    onClick={() => openFilePreview(f)}
-                                                                    className={`flex items-center space-x-1.5 text-xs font-mono px-2 py-1 rounded border transition-all ${
-                                                                        isActive
-                                                                            ? 'bg-blue-500/25 text-blue-200 border-blue-400/50 ring-1 ring-blue-400/30'
-                                                                            : 'bg-blue-500/10 text-blue-300 border-blue-500/20 hover:bg-blue-500/20 hover:border-blue-400/40'
-                                                                    }`}
-                                                                >
+                                            {/* Source files */}
+                                            <div>
+                                                <p className="text-xs text-slate-500 mb-1.5 font-medium mt-3">
+                                                    Source files
+                                                    <span className="ml-1.5 text-slate-600 font-normal">(click to preview)</span>
+                                                </p>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {effectiveSourceFiles(gap).map(f => {
+                                                        const isActive = filePreview?.path === f;
+                                                        return (
+                                                            <div key={f} className={`flex items-center space-x-1 text-xs font-mono px-2 py-1 rounded border transition-all group ${
+                                                                isActive
+                                                                    ? 'bg-blue-500/25 text-blue-200 border-blue-400/50 ring-1 ring-blue-400/30'
+                                                                    : 'bg-blue-500/10 text-blue-300 border-blue-500/20 hover:bg-blue-500/20 hover:border-blue-400/40'
+                                                            }`}>
+                                                                <button onClick={() => openFilePreview(f)} className="flex items-center space-x-1.5">
                                                                     <FileCode2 className="w-3 h-3 flex-shrink-0" />
                                                                     <span>{f}</span>
                                                                 </button>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            )}
+                                                                <button
+                                                                    onClick={() => removeSourceFile(gap.task_key, f, gap.source_files)}
+                                                                    className="ml-1 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all flex-shrink-0"
+                                                                    title="Remove source file"
+                                                                >
+                                                                    <X className="w-3 h-3" />
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })}
 
+                                                    {/* Add Source File button */}
+                                                    {addingFileFor !== gap.task_key && (
+                                                        <button
+                                                            onClick={() => setAddingFileFor(gap.task_key)}
+                                                            className="flex items-center space-x-1 text-xs px-2 py-1 rounded border border-dashed border-blue-500/30 text-blue-500 hover:border-blue-400 hover:text-blue-300 transition-all"
+                                                        >
+                                                            <Plus className="w-3 h-3" />
+                                                            <span>Add Source File</span>
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                {/* File search dropdown */}
+                                                {addingFileFor === gap.task_key && (
+                                                    <div className="mt-2 bg-[#0d1117] border border-white/10 rounded-xl overflow-hidden">
+                                                        <div className="flex items-center px-3 py-2 border-b border-white/10 space-x-2">
+                                                            <Search className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                                                            <input
+                                                                autoFocus
+                                                                type="text"
+                                                                placeholder="Search files…"
+                                                                value={fileSearchQuery[gap.task_key] ?? ''}
+                                                                onChange={e => setFileSearchQuery(prev => ({ ...prev, [gap.task_key]: e.target.value }))}
+                                                                className="flex-1 bg-transparent text-xs text-white placeholder-slate-600 outline-none"
+                                                            />
+                                                            <button
+                                                                onClick={() => { setAddingFileFor(null); setFileSearchQuery(prev => ({ ...prev, [gap.task_key]: '' })); }}
+                                                                className="text-slate-600 hover:text-slate-300 transition-colors"
+                                                            >
+                                                                <X className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </div>
+                                                        <div className="max-h-48 overflow-y-auto">
+                                                            {allRepoFiles
+                                                                .filter(f => {
+                                                                    const q = (fileSearchQuery[gap.task_key] ?? '').toLowerCase();
+                                                                    return f.toLowerCase().includes(q) && !effectiveSourceFiles(gap).includes(f);
+                                                                })
+                                                                .slice(0, 50)
+                                                                .map(f => (
+                                                                    <button
+                                                                        key={f}
+                                                                        onClick={() => addSourceFile(gap.task_key, f, gap.source_files)}
+                                                                        className="w-full text-left flex items-center space-x-2 px-3 py-1.5 text-xs font-mono text-slate-300 hover:bg-white/5 hover:text-blue-300 transition-colors"
+                                                                    >
+                                                                        <FileCode2 className="w-3 h-3 text-slate-600 flex-shrink-0" />
+                                                                        <span className="truncate">{f}</span>
+                                                                    </button>
+                                                                ))
+                                                            }
+                                                            {allRepoFiles.length === 0 && (
+                                                                <p className="text-xs text-slate-600 px-3 py-3">Loading repo files…</p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Test files */}
                                             {gap.test_files.length > 0 && (
                                                 <div>
                                                     <p className="text-xs text-slate-500 mb-1.5 font-medium">
@@ -491,31 +610,6 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip }) =>
                                                             );
                                                         })}
                                                     </div>
-                                                </div>
-                                            )}
-
-                                            {gap.gap_type !== 'complete' && (
-                                                <button
-                                                    onClick={() => handleGenerateTests(gap)}
-                                                    disabled={isGenerating}
-                                                    className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30 hover:border-purple-400 text-purple-300 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                                >
-                                                    {isGenerating
-                                                        ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /><span>Generating…</span></>
-                                                        : <><Wand2 className="w-3.5 h-3.5" /><span>Generate Tests</span></>
-                                                    }
-                                                </button>
-                                            )}
-
-                                            {genCode && (
-                                                <div>
-                                                    <div className="flex items-center space-x-2 mb-1.5">
-                                                        <Code2 className="w-3.5 h-3.5 text-green-400" />
-                                                        <span className="text-xs text-green-300 font-medium">Generated Tests</span>
-                                                    </div>
-                                                    <pre className="bg-black/40 border border-white/10 rounded-xl p-4 overflow-x-auto text-xs font-mono text-green-300 leading-relaxed max-h-80">
-                                                        <code>{genCode}</code>
-                                                    </pre>
                                                 </div>
                                             )}
                                         </div>

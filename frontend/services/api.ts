@@ -106,6 +106,21 @@ class ApiService {
         return (await apiClient.get(`/api/production/repository/${owner}/${repo}/file`, { params: { path, token } })).data;
     }
 
+    async getRepoFlatFiles(owner: string, repo: string, token: string): Promise<string[]> {
+        const tree = (await apiClient.get(`/api/production/repository/${owner}/${repo}/tree`, { params: { token } })).data;
+        const flat: string[] = [];
+        const collect = (items: any[]) => {
+            if (!Array.isArray(items)) return;
+            for (const item of items) {
+                if (item.type === 'file' && item.path) flat.push(item.path);
+                else if (item.children) collect(item.children);
+                else if (item.type === 'dir' && Array.isArray(item.items)) collect(item.items);
+            }
+        };
+        collect(Array.isArray(tree) ? tree : tree?.tree ?? tree?.items ?? []);
+        return flat;
+    }
+
     // ── Production — AI actions ───────────────────────────────────────────
 
     /** Analyze Test Structure / Improve Test Structure */
@@ -183,6 +198,31 @@ class ApiService {
                 existing_code:       existingCode,
             },
             { params: { token }, timeout: 60000 },
+        )).data;
+    }
+
+    async simulateTests(
+        gapType:            string,
+        taskKey:            string,
+        taskSummary:        string,
+        acceptanceCriteria: string,
+        sourceFiles:        string[],
+        repoOwner:          string,
+        repoName:           string,
+        token:              string,
+    ): Promise<{ verdict: string; explanation: string; test_code: string; gap_type: string; model: string }> {
+        return (await apiClient.post(
+            '/api/production/v2/gaps/simulate-tests',
+            {
+                gap_type:            gapType,
+                task_key:            taskKey,
+                task_summary:        taskSummary,
+                acceptance_criteria: acceptanceCriteria,
+                source_files:        sourceFiles,
+                repo_owner:          repoOwner,
+                repo_name:           repoName,
+            },
+            { params: { token }, timeout: 90000 },
         )).data;
     }
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronRight, Sparkles, MessageSquare, X } from 'lucide-react';
+import { ChevronRight, Sparkles, MessageSquare, X, FlaskConical, CheckCircle2, XCircle, AlertTriangle, Code2, Download } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { authUtils } from '../../utils/auth';
 import RepoStep from './steps/RepoStep';
@@ -86,8 +86,11 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
     // Panel / project state
     const [savedProjects,   setSavedProjects]  = useState<SavedProject[]>(() => loadSavedProjects());
     const [activeProjectId, setActiveProjectId] = useState<string | null>(persisted?.activeProjectId ?? null);
-    const [showAIChat,  setShowAIChat]  = useState(false);
-    const [chatWidth,   setChatWidth]   = useState(420);
+    const [showAIChat,    setShowAIChat]    = useState(false);
+    const [chatWidth,     setChatWidth]     = useState(420);
+    const [activePanel,   setActivePanel]   = useState<'chat' | 'results'>('chat');
+    const [lastSimResult, setLastSimResult] = useState<{ verdict: string; explanation: string; test_code: string; task_key: string; task_summary: string } | null>(null);
+    const [showTestCode,  setShowTestCode]  = useState(false);
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const isResizing       = useRef(false);
 
@@ -115,6 +118,23 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup',   onMouseUp);
     }, []);
+
+    const handleSimulateResult = useCallback((result: any) => {
+        setLastSimResult(result);
+        setShowTestCode(false);
+        setActivePanel('results');
+        setShowAIChat(true);
+    }, []);
+
+    const downloadTestCode = (taskKey: string, code: string) => {
+        const blob = new Blob([code], { type: 'text/plain' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `test_${taskKey.replace('-', '_').toLowerCase()}.py`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
 
     const activeProject = savedProjects.find(p => p.id === activeProjectId) ?? null;
 
@@ -264,6 +284,24 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
 
     // ── Render ────────────────────────────────────────────────────────────────
 
+    const ConditionCard = ({ condition, satisfied, reason }: { condition: string; satisfied: boolean; reason: string }) => (
+        <div className={`rounded-lg border px-3 py-2.5 space-y-1 ${
+            satisfied ? 'bg-green-500/8 border-green-500/20' : 'bg-red-500/8 border-red-500/20'
+        }`}>
+            <div className="flex items-start space-x-2">
+                {satisfied
+                    ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0 mt-0.5" />
+                    : <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0 mt-0.5" />
+                }
+                <p className="text-xs font-medium text-white leading-snug">{condition}</p>
+            </div>
+            <p className={`text-[11px] ml-5 font-semibold ${satisfied ? 'text-green-400' : 'text-red-400'}`}>
+                {satisfied ? 'Satisfied' : 'Not Satisfied'}
+            </p>
+            {reason && <p className="text-[11px] ml-5 text-slate-400 leading-snug">{reason}</p>}
+        </div>
+    );
+
     return (
         <div
             ref={chatContainerRef}
@@ -411,38 +449,179 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
                                 activeProject={activeProject}
                                 onSelectRepo={handleDashboardSelectRepo}
                                 onJiraConnected={handleDashboardJiraConnected}
+                                onSimulateResult={handleSimulateResult}
                             />
                         </div>
                     )}
                 </div>
             </div>
 
-            {/* ── AI Chat resizable panel (3rd grid column) ────────────────── */}
+            {/* ── Right panel (AI Chat + Test Results tabs) ────────────────── */}
             {showAIChat && aiSessionConfig && (
                 <div className="relative flex flex-col border-l border-white/10 bg-slate-900/50 overflow-hidden min-h-0">
-                    {/* Drag handle on the left edge */}
+                    {/* Drag handle */}
                     <div
                         onMouseDown={onResizeMouseDown}
                         className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-ew-resize hover:bg-purple-500/50 active:bg-purple-500/70 transition-colors"
                     />
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
-                        <div className="flex items-center space-x-2">
-                            <MessageSquare className="w-4 h-4 text-purple-400" />
-                            <span className="text-sm font-semibold text-white">AI Chat</span>
+
+                    {/* Tab bar */}
+                    <div className="flex items-center justify-between px-3 pt-2 pb-0 border-b border-white/10 flex-shrink-0">
+                        <div className="flex items-center space-x-1">
+                            <button
+                                onClick={() => setActivePanel('chat')}
+                                className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-medium rounded-t-lg border-b-2 transition-all ${
+                                    activePanel === 'chat'
+                                        ? 'border-purple-400 text-white bg-white/5'
+                                        : 'border-transparent text-slate-500 hover:text-slate-300'
+                                }`}
+                            >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>AI Chat</span>
+                            </button>
+                            <button
+                                onClick={() => setActivePanel('results')}
+                                className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-medium rounded-t-lg border-b-2 transition-all ${
+                                    activePanel === 'results'
+                                        ? 'border-indigo-400 text-white bg-white/5'
+                                        : 'border-transparent text-slate-500 hover:text-slate-300'
+                                }`}
+                            >
+                                <FlaskConical className="w-3.5 h-3.5" />
+                                <span>Test Results</span>
+                                {lastSimResult && (
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                                        lastSimResult.verdict === 'PASS' ? 'bg-green-500/30 text-green-300'
+                                        : lastSimResult.verdict === 'FAIL' ? 'bg-red-500/30 text-red-300'
+                                        : 'bg-yellow-500/30 text-yellow-300'
+                                    }`}>{lastSimResult.verdict}</span>
+                                )}
+                            </button>
                         </div>
                         <button
                             onClick={() => setShowAIChat(false)}
-                            className="p-1 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-all"
+                            className="mb-1 p-1 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-all"
                         >
                             <X className="w-4 h-4" />
                         </button>
                     </div>
+
+                    {/* Panel content */}
                     <div className="flex-1 overflow-hidden">
-                        <AIChatStep
-                            config={aiSessionConfig}
-                            onReset={() => setShowAIChat(false)}
-                            compact
-                        />
+                        {activePanel === 'chat' ? (
+                            <AIChatStep
+                                config={aiSessionConfig}
+                                onReset={() => setShowAIChat(false)}
+                                compact
+                            />
+                        ) : (
+                            <div className="h-full overflow-y-auto p-4 space-y-4">
+                                {!lastSimResult ? (
+                                    <div className="flex flex-col items-center justify-center h-48 text-center space-y-2">
+                                        <FlaskConical className="w-8 h-8 text-slate-600" />
+                                        <p className="text-slate-500 text-xs">No simulation run yet.</p>
+                                        <p className="text-slate-600 text-xs">Click "Simulate Tests" on any task in the gap report.</p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {/* Task info */}
+                                        <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2">
+                                            <p className="text-xs text-slate-500 font-mono">{lastSimResult.task_key}</p>
+                                            <p className="text-sm text-white mt-0.5 leading-snug">{lastSimResult.task_summary}</p>
+                                        </div>
+
+                                        {/* Verdict header */}
+                                        <div className={`rounded-xl border px-4 py-3 flex items-center space-x-2 ${
+                                            lastSimResult.verdict === 'PASS' ? 'bg-green-500/10 border-green-500/30'
+                                            : lastSimResult.verdict === 'FAIL' ? 'bg-red-500/10 border-red-500/30'
+                                            : 'bg-yellow-500/10 border-yellow-500/30'
+                                        }`}>
+                                            {lastSimResult.verdict === 'PASS'
+                                                ? <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0" />
+                                                : lastSimResult.verdict === 'FAIL'
+                                                ? <XCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                                                : <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
+                                            }
+                                            <span className={`text-sm font-bold ${
+                                                lastSimResult.verdict === 'PASS' ? 'text-green-300'
+                                                : lastSimResult.verdict === 'FAIL' ? 'text-red-300'
+                                                : 'text-yellow-300'
+                                            }`}>
+                                                AI Analysis — {lastSimResult.verdict}
+                                            </span>
+                                        </div>
+
+                                        {/* Condition-by-condition breakdown */}
+                                        <div className="space-y-2">
+                                            {(() => {
+                                                const text = lastSimResult.explanation;
+
+                                                // Try structured Condition: blocks first
+                                                const structuredBlocks = text.split(/\n\s*-\s+Condition:/i).filter(Boolean);
+                                                if (structuredBlocks.length > 1 || text.toLowerCase().includes('condition:')) {
+                                                    return structuredBlocks.map((block, i) => {
+                                                        const condMatch   = block.match(/^([^\n]+)/);
+                                                        const statusMatch = block.match(/Status:\s*(SATISFIED|NOT SATISFIED)/i);
+                                                        const reasonMatch = block.match(/Reason:\s*([^\n]+)/i);
+                                                        const condition   = condMatch?.[1]?.replace(/^Condition:/i, '').trim() ?? `Condition ${i + 1}`;
+                                                        const notSat      = statusMatch?.[1]?.toUpperCase().includes('NOT');
+                                                        const satisfied   = statusMatch ? !notSat : true;
+                                                        const reason      = reasonMatch?.[1]?.trim() ?? '';
+                                                        return (
+                                                            <ConditionCard key={i} condition={condition} satisfied={satisfied} reason={reason} />
+                                                        );
+                                                    });
+                                                }
+
+                                                // Fallback: split by bullet points / numbered lines — always item-by-item
+                                                const lines = text
+                                                    .split('\n')
+                                                    .map(l => l.replace(/^[\s\-•*\d.]+/, '').trim())
+                                                    .filter(Boolean);
+                                                return lines.map((line, i) => {
+                                                    const satisfied = /(pass|satisf|found|exist|implemented|present|correct)/i.test(line)
+                                                        && !/(not|miss|fail|absent|no |never|lack|empty|undefined|incorrect)/i.test(line);
+                                                    return <ConditionCard key={i} condition={line} satisfied={satisfied} reason="" />;
+                                                });
+                                            })()}
+                                        </div>
+
+                                        {/* View Code + Download */}
+                                        {lastSimResult.test_code && (
+                                            <div className="flex items-center space-x-2">
+                                                <button
+                                                    onClick={() => setShowTestCode(v => !v)}
+                                                    className="flex items-center space-x-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 border border-white/10 transition-all"
+                                                >
+                                                    <Code2 className="w-3.5 h-3.5" />
+                                                    <span>{showTestCode ? 'Hide Code' : 'View Code'}</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => downloadTestCode(lastSimResult.task_key, lastSimResult.test_code)}
+                                                    className="flex items-center space-x-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 border border-white/10 transition-all"
+                                                >
+                                                    <Download className="w-3.5 h-3.5" />
+                                                    <span>Download .py</span>
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* Expandable test code */}
+                                        {showTestCode && lastSimResult.test_code && (
+                                            <div>
+                                                <div className="flex items-center space-x-2 mb-1.5">
+                                                    <Code2 className="w-3.5 h-3.5 text-purple-400" />
+                                                    <span className="text-xs text-purple-300 font-medium">Simulated Test Code</span>
+                                                </div>
+                                                <pre className="bg-black/50 border border-white/10 rounded-xl p-3 overflow-x-auto text-xs font-mono text-green-300 leading-relaxed">
+                                                    <code>{lastSimResult.test_code}</code>
+                                                </pre>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

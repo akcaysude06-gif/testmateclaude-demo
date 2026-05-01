@@ -18,7 +18,7 @@ from services.auth_service import auth_service
 from services.github_service import github_service
 from services.jira_service import jira_service
 from services.gap_detection_service import gap_detection_service
-from services.claude_service import claude_service
+from services.groq_service import groq_service
 
 router = APIRouter(prefix="/api/production/v2", tags=["ProductionV2"])
 
@@ -43,6 +43,16 @@ class GenerateTestsRequest(BaseModel):
     task_summary:        str
     acceptance_criteria: str
     existing_code:       Optional[str] = ""
+
+
+class SimulateTestsRequest(BaseModel):
+    gap_type:            str
+    task_key:            str
+    task_summary:        str
+    acceptance_criteria: str
+    source_files:        List[str] = []
+    repo_owner:          str
+    repo_name:           str
 
 
 # ── /jira/connect ─────────────────────────────────────────────────────────────
@@ -292,7 +302,7 @@ async def generate_tests_for_gap(
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(
         None,
-        claude_service.generate_tests_from_gaps,
+        groq_service.generate_tests_from_gaps,
         request.task_summary,
         request.acceptance_criteria,
         request.existing_code or "",
@@ -310,5 +320,43 @@ async def generate_tests_for_gap(
         if gap_row:
             gap_row.generated_tests = result.get("code", "")
             db.commit()
+
+    return result
+
+
+# ── /gaps/simulate-tests ──────────────────────────────────────────────────────
+
+@router.post("/gaps/simulate-tests")
+async def simulate_tests_for_gap(
+    request: SimulateTestsRequest,
+    token: str,
+    db: Session = Depends(get_db),
+):
+    user = auth_service.get_current_user(db, token)
+
+    # Fetch content of each source file from GitHub (cap at 5)
+    files_with_content: List[dict] = []
+    for file_path in request.source_files[:5]:
+        try:
+            raw = await github_service.get_file_content(
+                user.github_access_token,
+                request.repo_owner,
+                request.repo_name,
+                file_path,
+            )
+            content = raw if isinstance(raw, str) else raw.get("content", "")
+            files_with_content.append({"path": file_path, "content": content})
+        except Exception:
+            files_with_content.append({"path": file_path, "content": ""})
+
+    loop   = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None,
+        groq_service.simulate_tests,
+        request.task_summary,
+        request.acceptance_criteria,
+        request.gap_type,
+        files_with_content,
+    )
 
     return result
