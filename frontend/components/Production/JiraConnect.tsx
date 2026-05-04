@@ -22,9 +22,7 @@ const JiraConnect: React.FC<JiraConnectProps> = ({ onConnected, onSkip }) => {
     useEffect(() => {
         (async () => {
             try {
-                const token = authUtils.getToken();
-                if (!token) return;
-                const status = await apiService.getJiraStatus(token);
+                const status = await apiService.getJiraStatus();
                 if (status.connected) {
                     setConnected(true);
                     setInstanceUrl(status.instance_url || '');
@@ -60,13 +58,11 @@ const JiraConnect: React.FC<JiraConnectProps> = ({ onConnected, onSkip }) => {
         setLoading(true);
         setError(null);
         try {
-            const token = authUtils.getToken();
             const res = await apiService.connectJira(
                 normalizeUrl(instanceUrl),
                 email.trim(),
                 apiToken.trim(),
                 projectKey.trim() || undefined,
-                token!,
             );
             setConnected(true);
             setConnectedUser(res.jira_user || email);
@@ -108,6 +104,16 @@ const JiraConnect: React.FC<JiraConnectProps> = ({ onConnected, onSkip }) => {
                         Analyse Gaps →
                     </button>
                 </div>
+
+                {onSkip && (
+                    <button
+                        type="button"
+                        onClick={onSkip}
+                        className="w-full text-center text-xs text-slate-500 hover:text-slate-300 transition-colors py-1 mb-3"
+                    >
+                        Skip for now — I'll add Jira later
+                    </button>
+                )}
 
                 {/* Change account / project options */}
                 <div className="border border-white/10 rounded-xl overflow-hidden">

@@ -4,7 +4,7 @@ import {
     ChevronDown, Code2, Loader2, Wand2,
     ListTodo, PlayCircle, CheckCheck, X,
     FileCode2, ChevronRight as ChevronRightIcon,
-    FlaskConical, Plus, Search,
+    FlaskConical, Plus, Search, Ban,
 } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { authUtils } from '../../utils/auth';
@@ -13,7 +13,7 @@ interface GapItem {
     task_key:             string;
     summary:              string;
     status:               string;
-    gap_type:             'not_started' | 'untested' | 'complete';
+    gap_type:             'not_started' | 'untested' | 'complete' | 'non_code_task';
     keywords:             string[];
     source_files:         string[];
     test_files:           string[];
@@ -21,13 +21,15 @@ interface GapItem {
 }
 
 interface GapStats {
-    total:           number;
-    not_started:     number;
-    not_started_pct: number;
-    untested:        number;
-    untested_pct:    number;
-    complete:        number;
-    complete_pct:    number;
+    total:              number;
+    not_started:        number;
+    not_started_pct:    number;
+    untested:           number;
+    untested_pct:       number;
+    complete:           number;
+    complete_pct:       number;
+    non_code_task:      number;
+    non_code_task_pct:  number;
 }
 
 interface SimulateResult {
@@ -75,6 +77,13 @@ const GAP_META = {
         bg:    'bg-green-500/10 border-green-500/30',
         badge: 'bg-green-500/20 text-green-300 border-green-500/30',
         icon:  <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />,
+    },
+    non_code_task: {
+        label: 'Non-Code Task',
+        color: 'text-slate-300',
+        bg:    'bg-slate-500/10 border-slate-500/30',
+        badge: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
+        icon:  <Ban className="w-3.5 h-3.5 text-slate-400" />,
     },
 } as const;
 
@@ -230,7 +239,6 @@ const CodePanel: React.FC<{
 const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSimulateResult }) => {
     const [loading,           setLoading]           = useState(false);
     const [error,             setError]             = useState<string | null>(null);
-    const [stats,             setStats]             = useState<GapStats | null>(null);
     const [gaps,              setGaps]              = useState<GapItem[]>([]);
     const [activeTab,         setActiveTab]         = useState<SprintTab>('in_progress');
     const [expanded,          setExpanded]          = useState<Set<string>>(new Set());
@@ -240,6 +248,23 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
     const [allRepoFiles,      setAllRepoFiles]      = useState<string[]>([]);
     const [addingFileFor,     setAddingFileFor]     = useState<string | null>(null);
     const [fileSearchQuery,   setFileSearchQuery]   = useState<Record<string, string>>({});
+    const [changingTypeFor,   setChangingTypeFor]   = useState<string | null>(null);
+
+    // Compute stats live from gaps so manual overrides are reflected immediately
+    const stats: GapStats | null = gaps.length === 0 ? null : (() => {
+        const total = gaps.length;
+        const count = (t: string) => gaps.filter(g => g.gap_type === t).length;
+        const pct   = (n: number) => Math.round(n / total * 1000) / 10;
+        const ns = count('not_started'), ut = count('untested'),
+              cmp = count('complete'),   nct = count('non_code_task');
+        return {
+            total,
+            not_started: ns,  not_started_pct:   pct(ns),
+            untested:    ut,  untested_pct:       pct(ut),
+            complete:    cmp, complete_pct:       pct(cmp),
+            non_code_task: nct, non_code_task_pct: pct(nct),
+        };
+    })();
 
     useEffect(() => {
         runAnalysis();
@@ -260,9 +285,7 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
         setLoading(true);
         setError(null);
         try {
-            const token = authUtils.getToken();
-            const data  = await apiService.analyzeGaps(repoOwner, repoName, token!);
-            setStats(data.stats);
+            const data  = await apiService.analyzeGaps(repoOwner, repoName);
             setGaps(data.gaps);
             const grouped = { todo: 0, in_progress: 0, done: 0 };
             (data.gaps as GapItem[]).forEach(g => { grouped[classifyJiraStatus(g.status)]++; });
@@ -301,10 +324,26 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
         setFileSearchQuery(prev => ({ ...prev, [taskKey]: '' }));
     };
 
+    const handleChangeGapType = async (taskKey: string, currentType: string, newType: string) => {
+        if (currentType === newType) { setChangingTypeFor(null); return; }
+        // Optimistic update
+        setGaps(prev => prev.map(g =>
+            g.task_key === taskKey ? { ...g, gap_type: newType as GapItem['gap_type'] } : g
+        ));
+        setChangingTypeFor(null);
+        try {
+            await apiService.updateGapType(taskKey, newType);
+        } catch {
+            // Revert on error
+            setGaps(prev => prev.map(g =>
+                g.task_key === taskKey ? { ...g, gap_type: currentType as GapItem['gap_type'] } : g
+            ));
+        }
+    };
+
     const handleSimulateTests = async (gap: GapItem) => {
         setSimulating(gap.task_key);
         try {
-            const token = authUtils.getToken();
             const res   = await apiService.simulateTests(
                 gap.gap_type,
                 gap.task_key,
@@ -313,7 +352,6 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                 effectiveSourceFiles(gap),
                 repoOwner,
                 repoName,
-                token!,
             );
             onSimulateResult({ ...res, task_key: gap.task_key, task_summary: gap.summary });
         } catch (err: any) {
@@ -405,11 +443,11 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                 </div>
 
                 {/* Stats cards */}
-                <div className="grid grid-cols-3 gap-3 mb-5">
-                    {(['complete', 'untested', 'not_started'] as const).map(type => {
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+                    {(['complete', 'untested', 'not_started', 'non_code_task'] as const).map(type => {
                         const m   = GAP_META[type];
-                        const cnt = stats[type];
-                        const pct = stats[`${type}_pct` as keyof GapStats] as number;
+                        const cnt = stats[type] ?? 0;
+                        const pct = (stats[`${type}_pct` as keyof GapStats] as number) ?? 0;
                         return (
                             <div key={type} className={`border rounded-xl p-4 ${m.bg}`}>
                                 <div className="flex items-center space-x-2 mb-1">
@@ -482,20 +520,59 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                                                 <span>{m.label}</span>
                                             </span>
                                         </button>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); handleSimulateTests(gap); }}
-                                            disabled={isSimulating}
-                                            className="ml-3 flex-shrink-0 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 hover:border-indigo-400 text-indigo-300 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                        >
-                                            {isSimulating
-                                                ? <><Loader2 className="w-3 h-3 animate-spin" /><span>Simulating…</span></>
-                                                : <><FlaskConical className="w-3 h-3" /><span>Simulate Tests</span></>
-                                            }
-                                        </button>
+                                        {gap.gap_type === 'non_code_task' ? (
+                                            <span className="ml-3 flex-shrink-0 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-500/10 border border-slate-500/20 text-slate-500 text-xs font-medium cursor-not-allowed"
+                                                title="No source code to simulate tests against">
+                                                <Ban className="w-3 h-3" />
+                                                <span>Not Applicable</span>
+                                            </span>
+                                        ) : (
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); handleSimulateTests(gap); }}
+                                                disabled={isSimulating}
+                                                className="ml-3 flex-shrink-0 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 hover:border-indigo-400 text-indigo-300 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                {isSimulating
+                                                    ? <><Loader2 className="w-3 h-3 animate-spin" /><span>Simulating…</span></>
+                                                    : <><FlaskConical className="w-3 h-3" /><span>Simulate Tests</span></>
+                                                }
+                                            </button>
+                                        )}
                                     </div>
 
                                     {isExpanded && (
                                         <div className="px-4 pb-4 space-y-3 border-t border-white/5">
+
+                                            {/* ── Manual status override ── */}
+                                            <div className="mt-3">
+                                                <p className="text-xs text-slate-500 mb-2 font-medium">Change status</p>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {(Object.keys(GAP_META) as Array<keyof typeof GAP_META>).map(type => {
+                                                        const opt      = GAP_META[type];
+                                                        const isCurrent = gap.gap_type === type;
+                                                        const saving    = changingTypeFor === gap.task_key;
+                                                        return (
+                                                            <button
+                                                                key={type}
+                                                                disabled={saving}
+                                                                onClick={() => handleChangeGapType(gap.task_key, gap.gap_type, type)}
+                                                                className={`flex items-center space-x-1 text-xs px-2.5 py-1 rounded-full border transition-all ${
+                                                                    isCurrent
+                                                                        ? `${opt.badge} ring-1 ring-offset-1 ring-offset-transparent font-semibold`
+                                                                        : 'bg-white/5 border-white/10 text-slate-400 hover:border-white/25 hover:text-slate-200'
+                                                                } disabled:opacity-40 disabled:cursor-not-allowed`}
+                                                            >
+                                                                {opt.icon}
+                                                                <span>{opt.label}</span>
+                                                                {isCurrent && (
+                                                                    <span className="ml-0.5 text-[10px] opacity-60">✓</span>
+                                                                )}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+
                                             {/* Source files */}
                                             <div>
                                                 <p className="text-xs text-slate-500 mb-1.5 font-medium mt-3">

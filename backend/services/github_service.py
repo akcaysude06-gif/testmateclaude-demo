@@ -153,5 +153,47 @@ class GitHubService:
 				detail=f"Error fetching file content: {str(e)}"
 			)
 
+	async def get_flat_file_list(self, access_token: str, owner: str, repo: str) -> List[str]:
+		"""
+		Return every file path in the repo using the Git Trees API (recursive=1).
+		Single API call — avoids the N+1 directory recursion pattern.
+		"""
+		try:
+			async with httpx.AsyncClient(timeout=30) as client:
+				# First get default branch
+				repo_resp = await client.get(
+					f"{self.github_api_base}/repos/{owner}/{repo}",
+					headers={
+						"Authorization": f"Bearer {access_token}",
+						"Accept": "application/vnd.github+json",
+						"X-GitHub-Api-Version": "2022-11-28",
+					},
+				)
+				if repo_resp.status_code != 200:
+					raise HTTPException(status_code=400, detail="Failed to fetch repo metadata")
+				default_branch = repo_resp.json().get("default_branch", "main")
+
+				# Fetch full tree recursively in one call
+				tree_resp = await client.get(
+					f"{self.github_api_base}/repos/{owner}/{repo}/git/trees/{default_branch}",
+					headers={
+						"Authorization": f"Bearer {access_token}",
+						"Accept": "application/vnd.github+json",
+						"X-GitHub-Api-Version": "2022-11-28",
+					},
+					params={"recursive": "1"},
+				)
+				if tree_resp.status_code != 200:
+					raise HTTPException(status_code=400, detail="Failed to fetch repository tree")
+
+				data = tree_resp.json()
+				return [
+					item["path"]
+					for item in data.get("tree", [])
+					if item.get("type") == "blob"
+				]
+		except httpx.HTTPError as e:
+			raise HTTPException(status_code=500, detail=f"Error fetching repo tree: {str(e)}")
+
 # Singleton instance
 github_service = GitHubService()

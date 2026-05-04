@@ -66,9 +66,9 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode, o
             {!open && (
                 <button
                     onClick={() => setOpen(true)}
-                    className={`fixed top-2 ${positionClass} z-50 m-2 w-11 h-11 flex items-center justify-center
+                    className={`fixed top-1 ${positionClass} z-50 m-2 w-11 h-11 flex items-center justify-center
                                 text-white/60 hover:text-white transition-colors rounded-md
-                                bg-black/60 backdrop-blur-xl border border-white/10 hover:bg-white/10 shadow-lg`}
+                                bg-white/10 backdrop-blur-xl border border-white/10 hover:bg-white/20 shadow-lg`}
                     aria-label="Open settings"
                 >
                     <Menu className="w-5 h-5" />

@@ -9,7 +9,7 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -55,14 +55,19 @@ class SimulateTestsRequest(BaseModel):
     repo_name:           str
 
 
+class UpdateGapTypeRequest(BaseModel):
+    gap_type: str
+
+
 # ── /jira/connect ─────────────────────────────────────────────────────────────
 
 @router.post("/jira/connect")
 async def connect_jira(
     request: JiraConnectRequest,
-    token: str,
     db: Session = Depends(get_db),
+    authorization: str = Header(...),
 ):
+    token = authorization.removeprefix("Bearer ").strip()
     user = auth_service.get_current_user(db, token)
 
     if not request.project_key or not request.project_key.strip():
@@ -110,7 +115,8 @@ async def connect_jira(
 # ── /jira/status ──────────────────────────────────────────────────────────────
 
 @router.get("/jira/status")
-async def jira_status(token: str, db: Session = Depends(get_db)):
+async def jira_status(db: Session = Depends(get_db), authorization: str = Header(...)):
+    token = authorization.removeprefix("Bearer ").strip()
     user = auth_service.get_current_user(db, token)
     integration = db.query(JiraIntegration).filter(
         JiraIntegration.user_id == user.id
@@ -134,9 +140,10 @@ async def jira_status(token: str, db: Session = Depends(get_db)):
 @router.post("/gaps/analyze")
 async def analyze_gaps(
     request: AnalyzeGapsRequest,
-    token: str,
     db: Session = Depends(get_db),
+    authorization: str = Header(...),
 ):
+    token = authorization.removeprefix("Bearer ").strip()
     user = auth_service.get_current_user(db, token)
 
     integration = db.query(JiraIntegration).filter(
@@ -201,7 +208,7 @@ async def analyze_gaps(
                 acceptance_criteria = ac_text,
             )
             db.add(db_task)
-            db.flush()  # get db_task.id before commit
+            db.flush()  # get db_task.id within the transaction
 
         tasks_for_detection.append({
             "task_key":            issue_key,
@@ -211,41 +218,14 @@ async def analyze_gaps(
             "_db_id":              db_task.id,
         })
 
-    db.commit()
+    # NOTE: do NOT commit here — we defer to a single commit after all steps
+    # succeed so that a GitHub failure doesn't leave orphaned JiraTask rows.
 
-    # Ensure IDs are populated for any rows that needed a flush
-    for t in tasks_for_detection:
-        if not t["_db_id"]:
-            row = db.query(JiraTask).filter(
-                JiraTask.jira_integration_id == integration.id,
-                JiraTask.task_key == t["task_key"],
-            ).first()
-            t["_db_id"] = row.id if row else None
-
-    # 3. Fetch repo file tree recursively from GitHub
-    async def get_flat_files(owner: str, repo: str) -> List[str]:
-        flat: List[str] = []
-
-        async def recurse(path: str):
-            items = await github_service.get_repository_structure(
-                user.github_access_token, owner, repo, path
-            )
-            if isinstance(items, dict):
-                items = [items]
-            for item in items:
-                if item.get("type") == "file":
-                    flat.append(item.get("path", ""))
-                elif item.get("type") == "dir":
-                    try:
-                        await recurse(item.get("path", ""))
-                    except Exception:
-                        pass
-
-        await recurse("")
-        return flat
-
+    # 3. Fetch full repo file list via Git Trees API (single call, no recursion)
     try:
-        repo_files = await get_flat_files(request.repo_owner, request.repo_name)
+        repo_files = await github_service.get_flat_file_list(
+            user.github_access_token, request.repo_owner, request.repo_name
+        )
     except Exception as exc:
         logger.error("Failed to fetch repo files for %s/%s: %s", request.repo_owner, request.repo_name, exc)
         raise HTTPException(status_code=500, detail=f"Failed to fetch repository files: {exc}")
@@ -294,9 +274,10 @@ async def analyze_gaps(
 @router.post("/gaps/generate-tests")
 async def generate_tests_for_gap(
     request: GenerateTestsRequest,
-    token: str,
     db: Session = Depends(get_db),
+    authorization: str = Header(...),
 ):
+    token = authorization.removeprefix("Bearer ").strip()
     auth_service.get_current_user(db, token)
 
     loop = asyncio.get_running_loop()
@@ -329,9 +310,10 @@ async def generate_tests_for_gap(
 @router.post("/gaps/simulate-tests")
 async def simulate_tests_for_gap(
     request: SimulateTestsRequest,
-    token: str,
     db: Session = Depends(get_db),
+    authorization: str = Header(...),
 ):
+    token = authorization.removeprefix("Bearer ").strip()
     user = auth_service.get_current_user(db, token)
 
     # Fetch content of each source file from GitHub (cap at 5)
@@ -346,8 +328,12 @@ async def simulate_tests_for_gap(
             )
             content = raw if isinstance(raw, str) else raw.get("content", "")
             files_with_content.append({"path": file_path, "content": content})
-        except Exception:
-            files_with_content.append({"path": file_path, "content": ""})
+        except Exception as e:
+            logger.warning("Could not fetch source file %s: %s", file_path, e)
+            files_with_content.append({
+                "path":    file_path,
+                "content": "# [File could not be fetched — treat as unavailable]",
+            })
 
     loop   = asyncio.get_running_loop()
     result = await loop.run_in_executor(
@@ -360,3 +346,47 @@ async def simulate_tests_for_gap(
     )
 
     return result
+
+
+# ── /gaps/{task_key}/type ─────────────────────────────────────────────────────
+
+@router.put("/gaps/{task_key}/type")
+async def update_gap_type(
+    task_key: str,
+    body: UpdateGapTypeRequest,
+    db: Session = Depends(get_db),
+    authorization: str = Header(...),
+):
+    token = authorization.removeprefix("Bearer ").strip()
+    user  = auth_service.get_current_user(db, token)
+
+    integration = db.query(JiraIntegration).filter(
+        JiraIntegration.user_id == user.id
+    ).first()
+    if not integration:
+        raise HTTPException(status_code=404, detail="No Jira integration found.")
+
+    task = db.query(JiraTask).filter(
+        JiraTask.jira_integration_id == integration.id,
+        JiraTask.task_key            == task_key,
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task {task_key} not found.")
+
+    gap = db.query(ImplementationGap).filter(
+        ImplementationGap.jira_task_id == task.id
+    ).first()
+    if not gap:
+        raise HTTPException(status_code=404, detail=f"No gap record for task {task_key}.")
+
+    try:
+        gap.gap_type = GapTypeEnum(body.gap_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid gap type '{body.gap_type}'. "
+                   f"Valid values: not_started, untested, complete, non_code_task.",
+        )
+
+    db.commit()
+    return {"task_key": task_key, "gap_type": body.gap_type}

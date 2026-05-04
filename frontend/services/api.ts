@@ -46,8 +46,10 @@ class ApiService {
     }
 
     // ── Auth ──────────────────────────────────────────────────────────────
-    async getGithubAuthUrl(): Promise<{ auth_url: string }> {
-        return (await apiClient.get('/api/auth/github/login')).data;
+    async getGithubAuthUrl(newAccount = false, loginHint?: string): Promise<{ auth_url: string }> {
+        const params: Record<string, string | boolean> = { new_account: newAccount };
+        if (loginHint) params.login_hint = loginHint;
+        return (await apiClient.get('/api/auth/github/login', { params })).data;
     }
 
     async verifyToken(token: string) {
@@ -159,24 +161,22 @@ class ApiService {
         email:       string,
         apiToken:    string,
         projectKey:  string | undefined,
-        token:       string,
     ): Promise<any> {
         return (await apiClient.post(
             '/api/production/v2/jira/connect',
             { instance_url: instanceUrl, email, api_token: apiToken, project_key: projectKey },
-            { params: { token } },
         )).data;
     }
 
-    async getJiraStatus(token: string): Promise<any> {
-        return (await apiClient.get('/api/production/v2/jira/status', { params: { token } })).data;
+    async getJiraStatus(): Promise<any> {
+        return (await apiClient.get('/api/production/v2/jira/status')).data;
     }
 
-    async analyzeGaps(repoOwner: string, repoName: string, token: string): Promise<any> {
+    async analyzeGaps(repoOwner: string, repoName: string): Promise<any> {
         return (await apiClient.post(
             '/api/production/v2/gaps/analyze',
             { repo_owner: repoOwner, repo_name: repoName },
-            { params: { token }, timeout: 120000 },
+            { timeout: 120000 },
         )).data;
     }
 
@@ -186,7 +186,6 @@ class ApiService {
         taskSummary:        string,
         acceptanceCriteria: string,
         existingCode:       string,
-        token:              string,
     ): Promise<any> {
         return (await apiClient.post(
             '/api/production/v2/gaps/generate-tests',
@@ -197,7 +196,7 @@ class ApiService {
                 acceptance_criteria: acceptanceCriteria,
                 existing_code:       existingCode,
             },
-            { params: { token }, timeout: 60000 },
+            { timeout: 60000 },
         )).data;
     }
 
@@ -209,7 +208,6 @@ class ApiService {
         sourceFiles:        string[],
         repoOwner:          string,
         repoName:           string,
-        token:              string,
     ): Promise<{ verdict: string; explanation: string; test_code: string; gap_type: string; model: string }> {
         return (await apiClient.post(
             '/api/production/v2/gaps/simulate-tests',
@@ -222,7 +220,14 @@ class ApiService {
                 repo_owner:          repoOwner,
                 repo_name:           repoName,
             },
-            { params: { token }, timeout: 90000 },
+            { timeout: 90000 },
+        )).data;
+    }
+
+    async updateGapType(taskKey: string, gapType: string): Promise<{ task_key: string; gap_type: string }> {
+        return (await apiClient.put(
+            `/api/production/v2/gaps/${taskKey}/type`,
+            { gap_type: gapType },
         )).data;
     }
 

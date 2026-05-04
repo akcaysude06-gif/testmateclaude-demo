@@ -17,8 +17,14 @@ export default function AuthSuccess() {
                     // Verify token and get user info
                     const user = await apiService.verifyToken(token);
                     authUtils.setUser(user);
+                    authUtils.setRememberedUser({
+                        username: user.username,
+                        email: user.email,
+                        avatar_url: user.avatar_url,
+                    });
 
-                    // Signal that Jira setup should be shown after redirect
+                    // Signal that account confirmation and Jira setup should be shown after redirect
+                    sessionStorage.setItem('account_confirm_pending', '1');
                     sessionStorage.setItem('jira_setup_pending', '1');
 
                     // Redirect to main app

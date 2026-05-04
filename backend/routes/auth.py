@@ -52,11 +52,13 @@ def get_frontend_url(request: Request) -> str:
 	return "http://localhost:3000"
 
 @router.get("/github/login")
-async def github_login():
+async def github_login(new_account: bool = False, login_hint: Optional[str] = None):
 	"""
-	Redirect to GitHub OAuth authorization page
+	Redirect to GitHub OAuth authorization page.
+	Pass new_account=true to force a fresh GitHub login screen.
+	Pass login_hint to pre-fill the GitHub login field with a specific username.
 	"""
-	auth_url = auth_service.get_github_oauth_url()
+	auth_url = auth_service.get_github_oauth_url(new_account=new_account, login_hint=login_hint)
 	return {"auth_url": auth_url}
 
 @router.get("/github/callback")

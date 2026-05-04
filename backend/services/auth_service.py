@@ -18,16 +18,26 @@ class AuthService:
 		self.jwt_secret = settings.JWT_SECRET_KEY
 		self.jwt_algorithm = settings.JWT_ALGORITHM
 
-	def get_github_oauth_url(self) -> str:
+	def get_github_oauth_url(self, new_account: bool = False, login_hint: str | None = None) -> str:
 		"""
-		Generate GitHub OAuth authorization URL
+		Generate GitHub OAuth authorization URL.
+		new_account=True routes through github.com/login to force a fresh login screen.
+		login_hint pre-fills the GitHub login field with a specific username.
 		"""
-		return (
-			f"https://github.com/login/oauth/authorize"
+		from urllib.parse import quote
+		login_param = f"&login={quote(login_hint, safe='')}" if login_hint else ""
+		prompt_param = "&prompt=login" if new_account else ""
+		raw_oauth_path = (
+			f"/login/oauth/authorize"
 			f"?client_id={self.github_client_id}"
 			f"&redirect_uri={self.github_redirect_uri}"
 			f"&scope=user:email"
+			f"{login_param}"
+			f"{prompt_param}"
 		)
+		if new_account:
+			return f"https://github.com/login?return_to={quote(raw_oauth_path, safe='')}"
+		return f"https://github.com{raw_oauth_path}"
 
 	async def exchange_code_for_token(self, code: str) -> str:
 		"""

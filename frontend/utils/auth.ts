@@ -4,6 +4,7 @@
 
 const TOKEN_KEY = 'testmate_token';
 const USER_KEY = 'testmate_user';
+const REMEMBERED_USER_KEY = 'testmate_remembered_user';
 
 export const authUtils = {
     // Save token to localStorage
@@ -48,5 +49,28 @@ export const authUtils = {
     // Check if user is authenticated
     isAuthenticated(): boolean {
         return this.getToken() !== null;
-    }
+    },
+
+    // Save remembered user display info (persists across token expiry)
+    setRememberedUser(user: { username: string; email?: string; avatar_url?: string }) {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem(REMEMBERED_USER_KEY, JSON.stringify(user));
+        }
+    },
+
+    // Get remembered user display info
+    getRememberedUser(): { username: string; email?: string; avatar_url?: string } | null {
+        if (typeof window !== 'undefined') {
+            const str = localStorage.getItem(REMEMBERED_USER_KEY);
+            return str ? JSON.parse(str) : null;
+        }
+        return null;
+    },
+
+    // Clear remembered user (called when switching accounts)
+    clearRememberedUser() {
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem(REMEMBERED_USER_KEY);
+        }
+    },
 };

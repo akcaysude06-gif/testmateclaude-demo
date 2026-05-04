@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import LoginScreen from '../components/Auth/LoginScreen';
+import AccountConfirmScreen from '../components/Auth/AccountConfirmScreen';
 import JiraSetupStep from '../components/Auth/JiraSetupStep';
 import Layout from '../components/Layout/Layout';
 import ModeSelection from '../components/Mode/ModeSelection';
@@ -16,6 +17,7 @@ import Production from '../components/Production/Production';
 export default function Home() {
     const router = useRouter();
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [showAccountConfirm, setShowAccountConfirm] = useState(false);
     const [showJiraSetup, setShowJiraSetup] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [currentMode, setCurrentMode] = useState<ModeType>(null);
@@ -33,8 +35,11 @@ export default function Home() {
                     setUser(userData);
                     setIsAuthenticated(true);
 
-                    // Show Jira setup after a fresh GitHub OAuth login
-                    if (sessionStorage.getItem('jira_setup_pending') === '1') {
+                    // Show account confirmation screen after a fresh GitHub OAuth login
+                    if (sessionStorage.getItem('account_confirm_pending') === '1') {
+                        sessionStorage.removeItem('account_confirm_pending');
+                        setShowAccountConfirm(true);
+                    } else if (sessionStorage.getItem('jira_setup_pending') === '1') {
                         sessionStorage.removeItem('jira_setup_pending');
                         setShowJiraSetup(true);
                     }
@@ -50,7 +55,6 @@ export default function Home() {
                     }
                 } catch (error) {
                     console.error('Token verification failed:', error);
-                    authUtils.removeToken();
                 }
             }
 
@@ -121,6 +125,20 @@ export default function Home() {
         setIsAuthenticated(true);
     };
 
+    const handleLoginWithToken = async () => {
+        const userData = await apiService.getCurrentUser();
+        setUser(userData);
+        setIsAuthenticated(true);
+        try {
+            const jiraStatus = await apiService.getJiraStatus();
+            if (!jiraStatus?.connected) {
+                setShowJiraSetup(true);
+            }
+        } catch {
+            // If Jira status check fails, proceed to main app
+        }
+    };
+
     const handleLogout = async () => {
         try {
             await apiService.logout();
@@ -128,6 +146,7 @@ export default function Home() {
             console.error('Logout error:', error);
         }
 
+        authUtils.removeToken();
         setIsAuthenticated(false);
         setShowJiraSetup(false);
         setCurrentMode(null);
@@ -172,7 +191,28 @@ export default function Home() {
 
     // Not authenticated - show login
     if (!isAuthenticated) {
-        return <LoginScreen onLogin={handleLogin} />;
+        return <LoginScreen onLogin={handleLogin} onLoginWithToken={handleLoginWithToken} />;
+    }
+
+    // Just completed OAuth — confirm which account was used
+    if (showAccountConfirm && user) {
+        return (
+            <AccountConfirmScreen
+                user={user}
+                onContinue={() => {
+                    setShowAccountConfirm(false);
+                    if (sessionStorage.getItem('jira_setup_pending') === '1') {
+                        sessionStorage.removeItem('jira_setup_pending');
+                        setShowJiraSetup(true);
+                    }
+                }}
+                onSwitchAccount={() => {
+                    setShowAccountConfirm(false);
+                    setIsAuthenticated(false);
+                    setUser(null);
+                }}
+            />
+        );
     }
 
     // Authenticated but Jira setup not yet completed

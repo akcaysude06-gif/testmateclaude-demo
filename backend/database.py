@@ -44,9 +44,10 @@ class User(Base):
 	jira_cloud_id = Column(String, nullable=True)
 
 class GapTypeEnum(enum.Enum):
-	not_started = "not_started"
-	untested    = "untested"
-	complete    = "complete"
+	not_started    = "not_started"
+	untested       = "untested"
+	complete       = "complete"
+	non_code_task  = "non_code_task"
 
 
 class JiraIntegration(Base):

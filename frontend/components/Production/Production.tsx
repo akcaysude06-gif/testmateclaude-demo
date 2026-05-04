@@ -284,19 +284,23 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
 
     // ── Render ────────────────────────────────────────────────────────────────
 
-    const ConditionCard = ({ condition, satisfied, reason }: { condition: string; satisfied: boolean; reason: string }) => (
+    const ConditionCard = ({ condition, satisfied, unknown, reason }: { condition: string; satisfied: boolean; unknown: boolean; reason: string }) => (
         <div className={`rounded-lg border px-3 py-2.5 space-y-1 ${
-            satisfied ? 'bg-green-500/8 border-green-500/20' : 'bg-red-500/8 border-red-500/20'
+            unknown    ? 'bg-yellow-500/8 border-yellow-500/20'
+            : satisfied ? 'bg-green-500/8 border-green-500/20'
+            : 'bg-red-500/8 border-red-500/20'
         }`}>
             <div className="flex items-start space-x-2">
-                {satisfied
-                    ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0 mt-0.5" />
-                    : <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0 mt-0.5" />
+                {unknown
+                    ? <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                    : satisfied
+                        ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0 mt-0.5" />
+                        : <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0 mt-0.5" />
                 }
                 <p className="text-xs font-medium text-white leading-snug">{condition}</p>
             </div>
-            <p className={`text-[11px] ml-5 font-semibold ${satisfied ? 'text-green-400' : 'text-red-400'}`}>
-                {satisfied ? 'Satisfied' : 'Not Satisfied'}
+            <p className={`text-[11px] ml-5 font-semibold ${unknown ? 'text-yellow-400' : satisfied ? 'text-green-400' : 'text-red-400'}`}>
+                {unknown ? 'Unknown' : satisfied ? 'Satisfied' : 'Not Satisfied'}
             </p>
             {reason && <p className="text-[11px] ml-5 text-slate-400 leading-snug">{reason}</p>}
         </div>
@@ -428,28 +432,12 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
 
                         /* ── Dashboard ───────────────────────────────────── */
                         <div className="h-full w-full min-w-0 py-4 pr-2">
-                            {/* Top bar with AI Chat toggle */}
-                            {activeProject && (
-                                <div className="flex items-center justify-end mb-3">
-                                    <button
-                                        onClick={() => setShowAIChat(v => !v)}
-                                        className={`flex items-center space-x-2 px-4 py-2 rounded-xl border text-sm font-medium transition-all ${
-                                            showAIChat
-                                                ? 'bg-purple-500/30 border-purple-400/60 text-white'
-                                                : 'bg-white/5 border-white/15 text-slate-300 hover:border-purple-400/50 hover:text-white'
-                                        }`}
-                                    >
-                                        <MessageSquare className="w-4 h-4" />
-                                        <span>AI Chat</span>
-                                    </button>
-                                </div>
-                            )}
-
                             <ProjectDashboard
                                 activeProject={activeProject}
                                 onSelectRepo={handleDashboardSelectRepo}
                                 onJiraConnected={handleDashboardJiraConnected}
                                 onSimulateResult={handleSimulateResult}
+                                onOpenAIChat={() => setShowAIChat(true)}
                             />
                         </div>
                     )}
@@ -556,19 +544,23 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
                                             {(() => {
                                                 const text = lastSimResult.explanation;
 
-                                                // Try structured Condition: blocks first
-                                                const structuredBlocks = text.split(/\n\s*-\s+Condition:/i).filter(Boolean);
-                                                if (structuredBlocks.length > 1 || text.toLowerCase().includes('condition:')) {
+                                                // Try structured Condition: blocks first.
+                                                // slice(1) drops the preamble before the first "- Condition:" marker.
+                                                const structuredBlocks = text.split(/\n\s*-\s+Condition:/i).slice(1).filter(Boolean);
+                                                if (structuredBlocks.length > 0) {
                                                     return structuredBlocks.map((block, i) => {
                                                         const condMatch   = block.match(/^([^\n]+)/);
-                                                        const statusMatch = block.match(/Status:\s*(SATISFIED|NOT SATISFIED)/i);
+                                                        const statusMatch = block.match(/Status:\s*(SATISFIED|NOT SATISFIED|INCONCLUSIVE)/i);
                                                         const reasonMatch = block.match(/Reason:\s*([^\n]+)/i);
-                                                        const condition   = condMatch?.[1]?.replace(/^Condition:/i, '').trim() ?? `Condition ${i + 1}`;
-                                                        const notSat      = statusMatch?.[1]?.toUpperCase().includes('NOT');
-                                                        const satisfied   = statusMatch ? !notSat : true;
+                                                        const condition   = condMatch?.[1]?.trim() ?? `Condition ${i + 1}`;
+                                                        // Only mark as satisfied when the model explicitly says so.
+                                                        // INCONCLUSIVE / unparseable status shows as neutral (unknown=true).
+                                                        const statusRaw   = statusMatch?.[1]?.toUpperCase() ?? 'UNKNOWN';
+                                                        const satisfied   = statusRaw === 'SATISFIED';
+                                                        const unknown     = statusRaw !== 'SATISFIED' && statusRaw !== 'NOT SATISFIED';
                                                         const reason      = reasonMatch?.[1]?.trim() ?? '';
                                                         return (
-                                                            <ConditionCard key={i} condition={condition} satisfied={satisfied} reason={reason} />
+                                                            <ConditionCard key={i} condition={condition} satisfied={satisfied} unknown={unknown} reason={reason} />
                                                         );
                                                     });
                                                 }
@@ -581,7 +573,7 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
                                                 return lines.map((line, i) => {
                                                     const satisfied = /(pass|satisf|found|exist|implemented|present|correct)/i.test(line)
                                                         && !/(not|miss|fail|absent|no |never|lack|empty|undefined|incorrect)/i.test(line);
-                                                    return <ConditionCard key={i} condition={line} satisfied={satisfied} reason="" />;
+                                                    return <ConditionCard key={i} condition={line} satisfied={satisfied} unknown={false} reason="" />;
                                                 });
                                             })()}
                                         </div>

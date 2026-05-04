@@ -17,6 +17,7 @@ interface ProjectDashboardProps {
     onSelectRepo:     (repo: Repository) => void;
     onJiraConnected:  (projectId: string, key: string, name: string) => void;
     onSimulateResult: (result: any) => void;
+    onOpenAIChat:     () => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -176,6 +177,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     onSelectRepo,
     onJiraConnected,
     onSimulateResult,
+    onOpenAIChat,
 }) => {
     const [showJiraConnect,    setShowJiraConnect]    = useState(false);
     const [jiraVerified,       setJiraVerified]       = useState<boolean | null>(null);
@@ -194,8 +196,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         setJiraVerifyError(null);
         (async () => {
             try {
-                const token = authUtils.getToken();
-                const status = await apiService.getJiraStatus(token!);
+                const status = await apiService.getJiraStatus();
                 if (status.connected && status.project_key) {
                     setJiraVerified(true);
                 } else {
@@ -268,7 +269,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                     <span className="text-sm font-semibold text-white">Gap Analysis</span>
                     <span className="text-xs text-slate-500">— {repoName} × {activeProject.jira!.key}</span>
                 </div>
-                <GapReport repoOwner={owner} repoName={repoName} onSkip={() => {}} onSimulateResult={onSimulateResult} />
+                <GapReport repoOwner={owner} repoName={repoName} onSkip={onOpenAIChat} onSimulateResult={onSimulateResult} />
             </div>
         );
     }

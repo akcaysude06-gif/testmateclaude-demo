@@ -1,21 +1,21 @@
 import React, { useState } from 'react';
 import { Sparkles, GitBranch } from 'lucide-react';
 import { apiService } from '../../services/api';
+import { authUtils } from '../../utils/auth';
 
 interface LoginScreenProps {
     onLogin: () => void;
+    onLoginWithToken: () => Promise<void>;
 }
 
-const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
+const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onLoginWithToken }) => {
     const [isLoading, setIsLoading] = useState(false);
 
     const handleGithubLogin = async () => {
         setIsLoading(true);
+        authUtils.removeToken();
         try {
-            // Get GitHub OAuth URL from backend
-            const { auth_url } = await apiService.getGithubAuthUrl();
-
-            // Redirect to GitHub OAuth page
+            const { auth_url } = await apiService.getGithubAuthUrl(true);
             window.location.href = auth_url;
         } catch (error) {
             console.error('Failed to initiate GitHub login:', error);
@@ -36,7 +36,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                         <p className="text-purple-200">AI-Powered Testing Assistant</p>
                     </div>
 
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                         <button
                             onClick={handleGithubLogin}
                             disabled={isLoading}
@@ -52,7 +52,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                             )}
                         </button>
 
-                        <p className="text-purple-200 text-sm text-center">
+                        <p className="text-purple-200 text-sm text-center pt-1">
                             Secure OAuth authentication • Your code stays private
                         </p>
                     </div>
