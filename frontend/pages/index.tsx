@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import LoginScreen from '../components/Auth/LoginScreen';
+import JiraSetupStep from '../components/Auth/JiraSetupStep';
 import Layout from '../components/Layout/Layout';
 import ModeSelection from '../components/Mode/ModeSelection';
 import LevelSelection from '../components/Level/LevelSelection';
@@ -15,6 +16,7 @@ import Production from '../components/Production/Production';
 export default function Home() {
     const router = useRouter();
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [showJiraSetup, setShowJiraSetup] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [currentMode, setCurrentMode] = useState<ModeType>(null);
     const [currentLevel, setCurrentLevel] = useState<LevelType>(null);
@@ -30,6 +32,13 @@ export default function Home() {
                     const userData = await apiService.getCurrentUser();
                     setUser(userData);
                     setIsAuthenticated(true);
+
+                    // Show Jira setup after a fresh GitHub OAuth login
+                    if (sessionStorage.getItem('jira_setup_pending') === '1') {
+                        sessionStorage.removeItem('jira_setup_pending');
+                        setShowJiraSetup(true);
+                    }
+
                     try {
                         const prefs = JSON.parse(localStorage.getItem('testmate_user_preferences') || '{}');
                         if (prefs.alwaysOpenProduction && !window.location.hash) {
@@ -120,6 +129,7 @@ export default function Home() {
         }
 
         setIsAuthenticated(false);
+        setShowJiraSetup(false);
         setCurrentMode(null);
         setCurrentLevel(null);
         setUser(null);
@@ -163,6 +173,11 @@ export default function Home() {
     // Not authenticated - show login
     if (!isAuthenticated) {
         return <LoginScreen onLogin={handleLogin} />;
+    }
+
+    // Authenticated but Jira setup not yet completed
+    if (showJiraSetup) {
+        return <JiraSetupStep onComplete={() => setShowJiraSetup(false)} />;
     }
 
     // Authenticated - show main app

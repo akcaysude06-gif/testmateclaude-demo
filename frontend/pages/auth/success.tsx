@@ -18,6 +18,9 @@ export default function AuthSuccess() {
                     const user = await apiService.verifyToken(token);
                     authUtils.setUser(user);
 
+                    // Signal that Jira setup should be shown after redirect
+                    sessionStorage.setItem('jira_setup_pending', '1');
+
                     // Redirect to main app
                     router.push('/');
                 } catch (error) {
