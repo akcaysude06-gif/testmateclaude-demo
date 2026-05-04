@@ -1,5 +1,22 @@
-import React, { useState } from 'react';
-import { LogOut, Sparkles, User } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { LogOut, Sparkles, User, Palette, Check } from 'lucide-react';
+
+const THEMES = [
+    { id: 'lavender',   label: 'Lavender',   from: '#2e2440', via: '#4a3060', accent: '#c4b5fd' },
+    { id: 'butter',     label: 'Butter',     from: '#4a4520', via: '#7a6e30', accent: '#fde68a' },
+    { id: 'pink',       label: 'Pink',       from: '#2e1a28', via: '#5c3050', accent: '#fbc8e0' },
+    { id: 'periwinkle', label: 'Periwinkle', from: '#1a2235', via: '#1e3050', accent: '#a5b4fc' },
+];
+
+const THEME_KEY = 'testmate_color_theme';
+
+function applyTheme(themeId: string) {
+    const theme = THEMES.find(t => t.id === themeId) || THEMES[0];
+    document.documentElement.style.setProperty('--theme-from',   theme.from);
+    document.documentElement.style.setProperty('--theme-via',    theme.via);
+    document.documentElement.style.setProperty('--theme-accent', theme.accent);
+    document.body.setAttribute('data-theme', themeId);
+}
 
 interface NavbarProps {
     onLogout: () => void;
@@ -9,10 +26,39 @@ interface NavbarProps {
 
 const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick }) => {
     const [showConfirm, setShowConfirm] = useState(false);
+    const [activeTheme, setActiveTheme] = useState<string>('lavender');
+    const [dropdownOpen, setDropdownOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
 
     const handleLogoutClick = () => setShowConfirm(true);
     const handleConfirm = () => { setShowConfirm(false); onLogout(); };
     const handleCancel = () => setShowConfirm(false);
+
+    useEffect(() => {
+        const saved = localStorage.getItem(THEME_KEY) || 'lavender';
+        setActiveTheme(saved);
+        applyTheme(saved);
+    }, []);
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setDropdownOpen(false);
+            }
+        };
+        if (dropdownOpen) document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [dropdownOpen]);
+
+    const handleTheme = (id: string) => {
+        setActiveTheme(id);
+        localStorage.setItem(THEME_KEY, id);
+        applyTheme(id);
+        setDropdownOpen(false);
+        window.dispatchEvent(new StorageEvent('storage', { key: THEME_KEY, newValue: id }));
+    };
+
+    const currentTheme = THEMES.find(t => t.id === activeTheme) || THEMES[0];
 
     return (
         <>
@@ -26,6 +72,55 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick }) => {
 
                     {user && (
                         <div className="flex items-center space-x-4">
+                            {/* Color Theme dropdown */}
+                            <div className="relative" ref={dropdownRef}>
+                                <button
+                                    onClick={() => setDropdownOpen(v => !v)}
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg
+                                               bg-white/5 border border-white/10 hover:bg-white/10
+                                               hover:border-white/20 transition-all text-white/70
+                                               hover:text-white text-sm"
+                                >
+                                    <Palette className="w-4 h-4" />
+                                    <span>Color Theme</span>
+                                    <span
+                                        className="w-3 h-3 rounded-full ml-1"
+                                        style={{ background: currentTheme.accent }}
+                                    />
+                                </button>
+
+                                {dropdownOpen && (
+                                    <div className="absolute right-0 mt-2 w-44 rounded-xl border border-white/10
+                                                    bg-black/70 backdrop-blur-xl shadow-xl z-50 p-2 flex flex-col gap-1">
+                                        {THEMES.map(theme => (
+                                            <button
+                                                key={theme.id}
+                                                onClick={() => handleTheme(theme.id)}
+                                                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm
+                                                           transition-all font-medium w-full text-left"
+                                                style={{
+                                                    background: activeTheme === theme.id
+                                                        ? `linear-gradient(135deg, ${theme.from}, ${theme.via})`
+                                                        : 'transparent',
+                                                    color: activeTheme === theme.id ? theme.accent : 'rgba(255,255,255,0.6)',
+                                                    border: `1px solid ${activeTheme === theme.id ? theme.accent : 'transparent'}`,
+                                                }}
+                                            >
+                                                <span
+                                                    className="w-3 h-3 rounded-full flex-shrink-0"
+                                                    style={{ background: theme.accent }}
+                                                />
+                                                {theme.label}
+                                                {activeTheme === theme.id && (
+                                                    <Check className="w-3 h-3 ml-auto" />
+                                                )}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* User avatar + name */}
                             <div className="flex items-center space-x-2">
                                 {user.avatar_url ? (
                                     <img

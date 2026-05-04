@@ -17,6 +17,7 @@ class GenerateCodeResponse(BaseModel):
 	code: str
 	explanation: str
 	steps: list[str]
+	line_explanations: dict
 	language: str
 	model: str
 
@@ -52,6 +53,7 @@ async def generate_automation_code(request: GenerateCodeRequest):
 			code=result["code"],
 			explanation=result["explanation"],
 			steps=result["steps"],
+			line_explanations=result.get("line_explanations", {}),
 			language=result["language"],
 			model="llama3"
 		)

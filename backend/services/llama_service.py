@@ -99,41 +99,74 @@ class LlamaService:
 
 	# ── Level 1 ───────────────────────────────────────────────────────────
 	def generate_selenium_code(self, test_description: str) -> dict:
-		prompt = (
-			f"Selenium Python script for: {test_description}\n"
-			f"WebDriverWait, try/finally driver.quit().\n"
-			f"```python\n[code]\n```\nSTEPS:\n1.[step]"
+		code_prompt = (
+			f"Write a Selenium Python test script for: {test_description}\n"
+			f"Requirements: use WebDriverWait, wrap body in try/finally with driver.quit().\n"
+			f"Return ONLY the code block:\n```python\n[code here]\n```"
 		)
 		try:
-			response = self.generate_text(prompt, 0.2, 700)
-			code, steps = "", []
-			if "```python" in response:
-				s = response.find("```python") + 9
-				e = response.find("```", s)
-				code = response[s:e].strip() if e != -1 else ""
-			elif "```" in response:
-				s = response.find("```") + 3
-				e = response.find("```", s)
-				code = response[s:e].strip() if e != -1 else response.strip()
+			code_response = self.generate_text(code_prompt, 0.2, 700)
+			code = ""
+			if "```python" in code_response:
+				s = code_response.find("```python") + 9
+				e = code_response.find("```", s)
+				code = code_response[s:e].strip() if e != -1 else ""
+			elif "```" in code_response:
+				s = code_response.find("```") + 3
+				e = code_response.find("```", s)
+				code = code_response[s:e].strip() if e != -1 else code_response.strip()
 			else:
-				code = response.strip()
-			if "STEPS:" in response:
-				for line in response[response.find("STEPS:") + 6:].split("\n"):
-					line = line.strip()
-					if line and (line[0].isdigit() or line.startswith("-")):
-						steps.append(line)
-			if not steps:
-				steps = ["Import Selenium", "Launch Chrome", "Open URL",
-				         "Locate elements", "Assert results", "Close browser"]
-			return {"code": code or self._fallback(test_description),
-			        "explanation": "Selenium code", "steps": steps, "language": "python"}
+				code = code_response.strip()
+
+			if not code:
+				code = self._fallback(test_description)
+
+			# Second call: generate per-line explanations as a JSON map
+			numbered = "\n".join(f"{i+1}: {l}" for i, l in enumerate(code.split("\n")))
+			explain_prompt = (
+				f"You are explaining Selenium Python code to a manual tester who does not know Python.\n"
+				f"Here is the code with line numbers:\n{numbered}\n\n"
+				f"Return ONLY a JSON object mapping line numbers (as strings) to a short plain-English "
+				f"explanation of that line. Skip blank lines and comment-only lines.\n"
+				f"Example format (return nothing else, no markdown):\n"
+				f'{{"1":"Import the Selenium webdriver module","2":"Import By to locate elements",...}}'
+			)
+			explain_response = self.generate_text(explain_prompt, 0.2, 600)
+			line_explanations = self._parse_json_map(explain_response)
+
+			return {
+				"code": code,
+				"explanation": "Selenium code",
+				"steps": [],
+				"line_explanations": line_explanations,
+				"language": "python",
+			}
 		except HTTPException:
 			raise
 		except Exception:
-			return {"code": self._fallback(test_description),
-			        "explanation": "Basic template",
-			        "steps": ["Import", "Launch", "Open URL", "Test", "Close"],
-			        "language": "python"}
+			return {
+				"code": self._fallback(test_description),
+				"explanation": "Basic template",
+				"steps": [],
+				"line_explanations": {},
+				"language": "python",
+			}
+
+	def _parse_json_map(self, text: str) -> dict:
+		"""Extract the first {...} JSON object from an LLM response."""
+		import re, json
+		# Try to find a {...} block even if the model wrapped it in markdown
+		match = re.search(r'\{[^{}]+\}', text, re.DOTALL)
+		if match:
+			try:
+				return json.loads(match.group())
+			except json.JSONDecodeError:
+				pass
+		# Fallback: try parsing the whole response
+		try:
+			return json.loads(text.strip())
+		except Exception:
+			return {}
 
 	def _fallback(self, desc: str) -> str:
 		return (

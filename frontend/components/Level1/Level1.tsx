@@ -13,6 +13,7 @@ interface GeneratedCode {
     code: string;
     explanation: string;
     steps: string[];
+    line_explanations: Record<string, string>;
     language: string;
     model: string;
 }
@@ -131,32 +132,30 @@ const Level1: React.FC<Level1Props> = ({ onBack }) => {
                 <span>Back to levels</span>
             </button>
 
-            <div className="bg-gradient-to-r from-green-600 via-emerald-600 to-teal-600 rounded-2xl p-6 mb-6 relative overflow-hidden">
-                <div className="absolute inset-0 bg-black/20"></div>
-                <div className="relative z-10 flex items-center justify-between">
-                    <div>
-                        <h1 className="text-3xl font-bold text-white mb-1">
-                            Level 1: AI-Powered Code Generation
-                        </h1>
-                        <p className="text-green-100">
-                            Describe your test scenario and let Llama 3 generate Selenium code
-                        </p>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                        {llamaAvailable === null ? (
-                            <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
-                        ) : llamaAvailable ? (
-                            <>
-                                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                                <span className="text-green-100 text-sm">Llama 3 Ready</span>
-                            </>
-                        ) : (
-                            <>
-                                <div className="w-2 h-2 bg-red-400 rounded-full"></div>
-                                <span className="text-red-200 text-sm">Llama 3 Offline</span>
-                            </>
-                        )}
-                    </div>
+            <div className="flex items-end justify-between mb-6">
+                <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-widest font-medium mb-2">Level 1</p>
+                    <h1 className="text-3xl font-light text-white tracking-tight">
+                        AI-Powered Code Generation
+                    </h1>
+                    <p className="text-slate-400 text-sm mt-1">
+                        Describe your test scenario and let Llama 3 generate Selenium code
+                    </p>
+                </div>
+                <div className="flex items-center gap-2 pb-1">
+                    {llamaAvailable === null ? (
+                        <div className="w-1.5 h-1.5 bg-slate-500 rounded-full animate-pulse" />
+                    ) : llamaAvailable ? (
+                        <>
+                            <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-pulse" />
+                            <span className="text-slate-400 text-xs">Llama 3 ready</span>
+                        </>
+                    ) : (
+                        <>
+                            <div className="w-1.5 h-1.5 bg-red-400 rounded-full" />
+                            <span className="text-red-400 text-xs">Llama 3 offline</span>
+                        </>
+                    )}
                 </div>
             </div>
 

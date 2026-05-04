@@ -1,23 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, X, Palette, Shield, BookOpen, Check, PanelLeft, PanelRight } from 'lucide-react';
+import { Menu, X, Shield, BookOpen, PanelLeft, PanelRight } from 'lucide-react';
 
-const THEMES = [
-    { id: 'lavender',    label: 'Lavender',    from: '#2e2440', via: '#4a3060', accent: '#c4b5fd' },
-    { id: 'butter',      label: 'Butter',      from: '#4a4520', via: '#7a6e30', accent: '#fde68a' },
-    { id: 'pink',        label: 'Pink',        from: '#2e1a28', via: '#5c3050', accent: '#fbc8e0' },
-    { id: 'periwinkle',  label: 'Periwinkle',  from: '#1a2235', via: '#1e3050', accent: '#a5b4fc' },
-];
-
-const THEME_KEY    = 'testmate_color_theme';
 const POSITION_KEY = 'testmate_sidebar_position';
-
-function applyTheme(themeId: string) {
-    const theme = THEMES.find(t => t.id === themeId) || THEMES[0];
-    document.documentElement.style.setProperty('--theme-from',   theme.from);
-    document.documentElement.style.setProperty('--theme-via',    theme.via);
-    document.documentElement.style.setProperty('--theme-accent', theme.accent);
-    document.body.setAttribute('data-theme', themeId);
-}
 
 interface SettingsSidebarProps {
     onOpenBeginnerMode: () => void;
@@ -25,25 +9,14 @@ interface SettingsSidebarProps {
 }
 
 const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode, onSideChange }) => {
-    const [open, setOpen]             = useState(false);
-    const [activeTheme, setActiveTheme] = useState<string>('lavender');
-    const [side, setSide]             = useState<'left' | 'right'>('right');
+    const [open, setOpen] = useState(false);
+    const [side, setSide] = useState<'left' | 'right'>('right');
 
     useEffect(() => {
-        const savedTheme = localStorage.getItem(THEME_KEY) || 'lavender';
-        setActiveTheme(savedTheme);
-        applyTheme(savedTheme);
-
         const savedSide = (localStorage.getItem(POSITION_KEY) || 'right') as 'left' | 'right';
         setSide(savedSide);
         onSideChange?.(savedSide);
     }, []);
-
-    const handleTheme = (id: string) => {
-        setActiveTheme(id);
-        localStorage.setItem(THEME_KEY, id);
-        applyTheme(id);
-    };
 
     const handleToggleSide = () => {
         const next = side === 'right' ? 'left' : 'right';
@@ -66,7 +39,7 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode, o
             {!open && (
                 <button
                     onClick={() => setOpen(true)}
-                    className={`fixed top-1 ${positionClass} z-50 m-2 w-11 h-11 flex items-center justify-center
+                    className={`fixed top-0 ${positionClass} z-50 mt-[10px] mx-2 w-11 h-11 flex items-center justify-center
                                 text-white/60 hover:text-white transition-colors rounded-md
                                 bg-white/10 backdrop-blur-xl border border-white/10 hover:bg-white/20 shadow-lg`}
                     aria-label="Open settings"
@@ -100,47 +73,6 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode, o
                 <div
                     className="flex flex-col flex-1 overflow-y-auto px-4 py-5 gap-6 min-w-[212px]"
                 >
-                    {/* Color Theme */}
-                    <section>
-                        <div className="flex items-center gap-2 mb-3">
-                            <Palette className="w-4 h-4 text-white/50" />
-                            <span className="text-white/70 text-xs font-semibold uppercase tracking-widest">
-                                Color Theme
-                            </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                            {THEMES.map(theme => (
-                                <button
-                                    key={theme.id}
-                                    onClick={() => handleTheme(theme.id)}
-                                    className="relative flex items-center gap-2 px-3 py-2 rounded-lg
-                                               border transition-all text-sm font-medium"
-                                    style={{
-                                        background: `linear-gradient(135deg, ${theme.from}, ${theme.via})`,
-                                        borderColor: activeTheme === theme.id
-                                            ? theme.accent
-                                            : 'rgba(255,255,255,0.08)',
-                                        color: activeTheme === theme.id ? theme.accent : 'rgba(255,255,255,0.6)',
-                                        boxShadow: activeTheme === theme.id
-                                            ? `0 0 10px ${theme.accent}55`
-                                            : 'none',
-                                    }}
-                                >
-                                    <span
-                                        className="w-3 h-3 rounded-full flex-shrink-0"
-                                        style={{ background: theme.accent }}
-                                    />
-                                    {theme.label}
-                                    {activeTheme === theme.id && (
-                                        <Check className="w-3 h-3 ml-auto" />
-                                    )}
-                                </button>
-                            ))}
-                        </div>
-                    </section>
-
-                    <div className="border-t border-white/10" />
-
                     {/* Privacy */}
                     <section>
                         <div className="flex items-center gap-2 mb-3">
