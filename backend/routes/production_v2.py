@@ -135,6 +135,21 @@ async def jira_status(db: Session = Depends(get_db), authorization: str = Header
     }
 
 
+# ── /jira/disconnect ──────────────────────────────────────────────────────────
+
+@router.delete("/jira/disconnect")
+async def disconnect_jira(db: Session = Depends(get_db), authorization: str = Header(...)):
+    token = authorization.removeprefix("Bearer ").strip()
+    user = auth_service.get_current_user(db, token)
+    integration = db.query(JiraIntegration).filter(
+        JiraIntegration.user_id == user.id
+    ).first()
+    if integration:
+        db.delete(integration)
+        db.commit()
+    return {"disconnected": True}
+
+
 # ── /gaps/analyze ─────────────────────────────────────────────────────────────
 
 @router.post("/gaps/analyze")

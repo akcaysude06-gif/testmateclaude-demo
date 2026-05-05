@@ -3,7 +3,6 @@ import { ChevronRight, Sparkles, MessageSquare, X, FlaskConical, CheckCircle2, X
 import { apiService } from '../../services/api';
 import { authUtils } from '../../utils/auth';
 import RepoStep from './steps/RepoStep';
-import CodeTypeStep from './steps/CodeTypeStep';
 import ScopeStep from './steps/ScopeStep';
 import AIChatStep from './steps/AIChatStep';
 import JiraConnect from './JiraConnect';
@@ -39,13 +38,12 @@ export interface SessionConfig {
     selectedFiles: string[];
 }
 
-type Step = 'repo' | 'code-type' | 'scope' | 'jira';
+type Step = 'repo' | 'scope' | 'jira';
 
 const STEPS: { id: Step; label: string }[] = [
-    { id: 'repo',      label: 'Repository' },
-    { id: 'code-type', label: 'Code Type'  },
-    { id: 'scope',     label: 'Scope'      },
-    { id: 'jira',      label: 'Jira'       },
+    { id: 'repo',  label: 'Repository' },
+    { id: 'scope', label: 'Scope'      },
+    { id: 'jira',  label: 'Jira'       },
 ];
 
 // ── sessionStorage helpers ────────────────────────────────────────────────────
@@ -178,14 +176,7 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
 
     const handleRepoSelected = (r: Repository) => {
         setRepo(r);
-        setCodeType(null);
-        setScope(null);
-        setSelectedFiles([]);
-        setStep('code-type');
-    };
-
-    const handleCodeTypeSelected = (ct: CodeType) => {
-        setCodeType(ct);
+        setCodeType('application-code');
         setScope(null);
         setSelectedFiles([]);
         setStep('scope');
@@ -210,9 +201,8 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
     };
 
     const handleWizardBack = () => {
-        if (step === 'code-type') setStep('repo');
-        else if (step === 'scope') setStep('code-type');
-        else if (step === 'jira')  setStep('scope');
+        if (step === 'scope') setStep('repo');
+        else if (step === 'jira') setStep('scope');
         else { setShowWizard(false); }
     };
 
@@ -255,10 +245,10 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
 
     const handleDashboardSelectRepo = (r: Repository) => {
         setRepo(r);
-        setCodeType(null);
+        setCodeType('application-code');
         setScope(null);
         setSelectedFiles([]);
-        setStep('code-type');
+        setStep('scope');
         setShowWizard(true);
         loadRepos();
     };
@@ -401,14 +391,6 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
                                     selectedRepo={repo}
                                     onSelect={handleRepoSelected}
                                     onRetry={loadRepos}
-                                />
-                            )}
-
-                            {step === 'code-type' && repo && (
-                                <CodeTypeStep
-                                    repo={repo}
-                                    selected={codeType}
-                                    onSelect={handleCodeTypeSelected}
                                 />
                             )}
 

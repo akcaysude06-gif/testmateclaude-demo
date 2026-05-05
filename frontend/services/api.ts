@@ -172,6 +172,10 @@ class ApiService {
         return (await apiClient.get('/api/production/v2/jira/status')).data;
     }
 
+    async disconnectJira(): Promise<any> {
+        return (await apiClient.delete('/api/production/v2/jira/disconnect')).data;
+    }
+
     async analyzeGaps(repoOwner: string, repoName: string): Promise<any> {
         return (await apiClient.post(
             '/api/production/v2/gaps/analyze',
