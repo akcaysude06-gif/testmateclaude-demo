@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import LoginScreen from '../components/Auth/LoginScreen';
 import AccountConfirmScreen from '../components/Auth/AccountConfirmScreen';
@@ -25,6 +25,27 @@ export default function Home() {
     const [user, setUser] = useState<any>(null);
     const [jiraStatus, setJiraStatus] = useState<{ connected: boolean; email?: string; instance_url?: string } | null>(null);
 
+    const refreshJiraStatus = useCallback(async () => {
+        try {
+            const status = await apiService.getJiraStatus();
+            setJiraStatus(status);
+            return status;
+        } catch {
+            return null;
+        }
+    }, []);
+
+    // Re-fetch Jira status whenever the tab becomes visible (e.g. returning from account page)
+    useEffect(() => {
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible' && authUtils.getToken()) {
+                refreshJiraStatus();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibility);
+        return () => document.removeEventListener('visibilitychange', handleVisibility);
+    }, [refreshJiraStatus]);
+
     // Check if user is already authenticated on mount
     useEffect(() => {
         const checkAuth = async () => {
@@ -43,6 +64,9 @@ export default function Home() {
                     } else if (sessionStorage.getItem('jira_setup_pending') === '1') {
                         sessionStorage.removeItem('jira_setup_pending');
                         setShowJiraSetup(true);
+                    } else if (new URLSearchParams(window.location.search).get('connect_jira') === '1') {
+                        window.history.replaceState({}, '', '/');
+                        setShowJiraSetup(true);
                     }
 
                     try {
@@ -55,12 +79,7 @@ export default function Home() {
                         // ignore malformed prefs
                     }
 
-                    try {
-                        const status = await apiService.getJiraStatus();
-                        setJiraStatus(status);
-                    } catch {
-                        // ignore jira status fetch failure
-                    }
+                    await refreshJiraStatus();
                 } catch (error) {
                     console.error('Token verification failed:', error);
                 }
@@ -93,7 +112,7 @@ export default function Home() {
         } else if (hash === '#guided/level1') {
             setCurrentMode('guided');
             setCurrentLevel(1);
-        } else if (hash === '#production') {
+        } else if (hash === '#production' || hash.startsWith('#production?')) {
             setCurrentMode('production');
             setCurrentLevel(null);
         } else {
@@ -116,7 +135,7 @@ export default function Home() {
             } else if (hash === '#guided/level1') {
                 setCurrentMode('guided');
                 setCurrentLevel(1);
-            } else if (hash === '#production') {
+            } else if (hash === '#production' || hash.startsWith('#production?')) {
                 setCurrentMode('production');
                 setCurrentLevel(null);
             } else {
@@ -137,14 +156,9 @@ export default function Home() {
         const userData = await apiService.getCurrentUser();
         setUser(userData);
         setIsAuthenticated(true);
-        try {
-            const status = await apiService.getJiraStatus();
-            setJiraStatus(status);
-            if (!status?.connected) {
-                setShowJiraSetup(true);
-            }
-        } catch {
-            // If Jira status check fails, proceed to main app
+        const status = await refreshJiraStatus();
+        if (!status?.connected) {
+            setShowJiraSetup(true);
         }
     };
 
@@ -226,7 +240,7 @@ export default function Home() {
 
     // Authenticated but Jira setup not yet completed
     if (showJiraSetup) {
-        return <JiraSetupStep onComplete={() => setShowJiraSetup(false)} />;
+        return <JiraSetupStep onComplete={() => { setShowJiraSetup(false); refreshJiraStatus(); }} />;
     }
 
     // Authenticated - show main app
@@ -260,7 +274,11 @@ export default function Home() {
             )}
 
             {currentMode === 'production' && (
-                <Production onBack={handleBackToModes} />
+                <Production
+                    onBack={handleBackToModes}
+                    jiraConnected={jiraStatus?.connected === true}
+                    onConnectJira={() => setShowJiraSetup(true)}
+                />
             )}
         </Layout>
     );

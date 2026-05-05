@@ -14,7 +14,9 @@ import ConnectedProjectsPanel, {
 import ProjectDashboard from './ProjectDashboard';
 
 interface ProductionProps {
-    onBack: () => void;
+    onBack:         () => void;
+    jiraConnected?: boolean;
+    onConnectJira?: () => void;
 }
 
 export interface Repository {
@@ -47,7 +49,8 @@ const STEPS: { id: Step; label: string }[] = [
 ];
 
 // ── sessionStorage helpers ────────────────────────────────────────────────────
-const SS_KEY = 'testmate_production_state';
+const SS_KEY        = 'testmate_production_state';
+const WIZARD_SS_KEY = 'testmate_wizard_state';
 
 function loadPersistedState() {
     try {
@@ -63,9 +66,17 @@ function persistState(state: object) {
 function clearPersistedState() {
     try { sessionStorage.removeItem(SS_KEY); } catch { /* ignore */ }
 }
+
+function loadAndClearWizardState() {
+    try {
+        const raw = sessionStorage.getItem(WIZARD_SS_KEY);
+        sessionStorage.removeItem(WIZARD_SS_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
-const Production: React.FC<ProductionProps> = ({ onBack }) => {
+const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, onConnectJira }) => {
     const persisted = loadPersistedState();
 
     // Wizard state
@@ -140,6 +151,49 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
         persistState({ activeProjectId });
     }, [activeProjectId]);
 
+    // Re-sync savedProjects when returning from another page (e.g. account settings)
+    useEffect(() => {
+        const sync = () => {
+            const fresh = loadSavedProjects();
+            setSavedProjects(fresh);
+            setActiveProjectId(prev => fresh.some(p => p.id === prev) ? prev : null);
+        };
+        const syncOnPageShow = (e: PageTransitionEvent) => { if (e.persisted) sync(); };
+        document.addEventListener('visibilitychange', sync);
+        window.addEventListener('storage', sync);
+        window.addEventListener('connected-projects-changed', sync);
+        window.addEventListener('pageshow', syncOnPageShow);
+        return () => {
+            document.removeEventListener('visibilitychange', sync);
+            window.removeEventListener('storage', sync);
+            window.removeEventListener('connected-projects-changed', sync);
+            window.removeEventListener('pageshow', syncOnPageShow);
+        };
+    }, []);
+
+    const handleRemoveProject = useCallback((projectId: string) => {
+        const updated = savedProjects.filter(p => p.id !== projectId);
+        localStorage.setItem('testmate_connected_projects', JSON.stringify(updated));
+        setSavedProjects(updated);
+        if (activeProjectId === projectId) setActiveProjectId(null);
+    }, [savedProjects, activeProjectId]);
+
+    // Restore wizard state after Jira OAuth redirect
+    useEffect(() => {
+        const hash = window.location.hash;
+        if (!hash.includes('jira_connected=true')) return;
+        const saved = loadAndClearWizardState();
+        if (saved?.showWizard) {
+            setShowWizard(true);
+            setStep(saved.step ?? 'jira');
+            if (saved.repo)           setRepo(saved.repo);
+            if (saved.codeType)       setCodeType(saved.codeType);
+            if (saved.scope)          setScope(saved.scope);
+            if (saved.selectedFiles)  setSelectedFiles(saved.selectedFiles);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const loadRepos = async () => {
         setLoading(true);
         setRepoError(null);
@@ -189,12 +243,24 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
     };
 
     const handleJiraConnectedInWizard = (pk: string) => {
+        if (!repo) {
+            // Came from "Connect Project" with no repo — Jira just got connected, now pick repo
+            setStep('repo');
+            loadRepos();
+            return;
+        }
         saveProject({ key: pk, name: pk, avatar_url: null });
         setShowWizard(false);
         clearPersistedState();
     };
 
     const handleJiraSkipInWizard = () => {
+        if (!repo) {
+            // Skipped Jira connect — proceed to repo selection
+            setStep('repo');
+            loadRepos();
+            return;
+        }
         saveProject();
         setShowWizard(false);
         clearPersistedState();
@@ -202,7 +268,7 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
 
     const handleWizardBack = () => {
         if (step === 'scope') setStep('repo');
-        else if (step === 'jira') setStep('scope');
+        else if (step === 'jira' && repo) setStep('scope');
         else { setShowWizard(false); }
     };
 
@@ -219,9 +285,13 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
         setCodeType(null);
         setScope(null);
         setSelectedFiles([]);
-        setStep('repo');
+        if (!jiraConnected) {
+            setStep('jira');
+        } else {
+            setStep('repo');
+            loadRepos();
+        }
         setShowWizard(true);
-        loadRepos();
     };
 
     const handlePanelProjectSelect = (project: SavedProject) => {
@@ -318,6 +388,9 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
                     onProjectSelect={handlePanelProjectSelect}
                     onConnectProject={handleConnectProject}
                     onConnectJira={handleConnectJiraForProject}
+                    onRemoveProject={handleRemoveProject}
+                    jiraConnected={jiraConnected}
+                    onSetupJira={onConnectJira}
                 />
             </div>
 
@@ -402,10 +475,20 @@ const Production: React.FC<ProductionProps> = ({ onBack }) => {
                                 />
                             )}
 
-                            {step === 'jira' && (
+                            {step === 'jira' && !repo && (
+                                /* No repo yet — user opened wizard without Jira connected */
                                 <JiraConnect
                                     onConnected={handleJiraConnectedInWizard}
                                     onSkip={handleJiraSkipInWizard}
+                                    wizardState={{ showWizard: true, step: 'jira', repo: null, codeType: null, scope: null, selectedFiles: [] }}
+                                />
+                            )}
+                            {step === 'jira' && repo && (
+                                /* Has repo — picking the Jira space for this project */
+                                <JiraConnect
+                                    onConnected={handleJiraConnectedInWizard}
+                                    onSkip={handleJiraSkipInWizard}
+                                    wizardState={{ showWizard: true, step: 'jira', repo, codeType, scope, selectedFiles }}
                                 />
                             )}
                         </div>

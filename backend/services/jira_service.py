@@ -189,7 +189,7 @@ class JiraOAuthService:
     _TOKEN_URL = "https://auth.atlassian.com/oauth/token"
     _RESOURCES_URL = "https://api.atlassian.com/oauth/token/accessible-resources"
     _API_BASE = "https://api.atlassian.com/ex/jira"
-    _SCOPES = "read:jira-data read:jira-user offline_access"
+    _SCOPES = "read:issue-details:jira read:project:jira offline_access"
 
     # ── OAuth flow ────────────────────────────────────────────────────────────
 
@@ -246,6 +246,28 @@ class JiraOAuthService:
                 )
             return resp.json()
 
+    async def get_accessible_sites(self, access_token: str) -> list:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                self._RESOURCES_URL,
+                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Failed to fetch accessible Jira sites.",
+                )
+            return [
+                {
+                    "cloud_id":   r["id"],
+                    "name":       r.get("name", ""),
+                    "url":        r.get("url", ""),
+                    "avatar_url": r.get("avatarUrl"),
+                }
+                for r in resp.json()
+            ]
+
     async def get_cloud_id(self, access_token: str) -> str:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
@@ -292,6 +314,28 @@ class JiraOAuthService:
             return resp.json()
 
     # ── Projects ──────────────────────────────────────────────────────────────
+
+    async def get_myself(self, access_token: str, cloud_id: str) -> Dict:
+        return await self._api_get(access_token, cloud_id, "/myself")
+
+    async def get_project_issues_flat(
+        self, access_token: str, cloud_id: str, project_key: str
+    ) -> List[Dict]:
+        jql = f'project = "{project_key}" ORDER BY updated DESC'
+        issues: List[Dict] = []
+        start_at = 0
+        page_size = 50
+        while True:
+            data = await self._api_get(
+                access_token, cloud_id, "/search",
+                {"jql": jql, "startAt": start_at, "maxResults": page_size,
+                 "fields": "summary,status,description,issuetype,priority"},
+            )
+            issues.extend(data.get("issues", []))
+            if start_at + page_size >= data.get("total", 0):
+                break
+            start_at += page_size
+        return issues
 
     async def get_projects(self, access_token: str, cloud_id: str) -> List[Dict]:
         data = await self._api_get(access_token, cloud_id, "/project/search", {"maxResults": 50})

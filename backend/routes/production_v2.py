@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from database import get_db, JiraIntegration, JiraTask, ImplementationGap, GapTypeEnum
 from services.auth_service import auth_service
 from services.github_service import github_service
-from services.jira_service import jira_service
+from services.jira_service import jira_service, jira_oauth_service
 from services.gap_detection_service import gap_detection_service
 from services.groq_service import groq_service
 
@@ -29,7 +29,7 @@ class JiraConnectRequest(BaseModel):
     instance_url: str
     email:        str
     api_token:    str
-    project_key:  str
+    project_key:  Optional[str] = None
 
 
 class AnalyzeGapsRequest(BaseModel):
@@ -59,6 +59,12 @@ class UpdateGapTypeRequest(BaseModel):
     gap_type: str
 
 
+class UpdateProjectKeyRequest(BaseModel):
+    project_key: str
+    space_url:   Optional[str] = None
+    cloud_id:    Optional[str] = None
+
+
 # ── /jira/connect ─────────────────────────────────────────────────────────────
 
 @router.post("/jira/connect")
@@ -69,9 +75,6 @@ async def connect_jira(
 ):
     token = authorization.removeprefix("Bearer ").strip()
     user = auth_service.get_current_user(db, token)
-
-    if not request.project_key or not request.project_key.strip():
-        raise HTTPException(status_code=400, detail="project_key is required (e.g. SCRUM).")
 
     loop = asyncio.get_running_loop()
     myself = await loop.run_in_executor(
@@ -90,7 +93,8 @@ async def connect_jira(
         integration.instance_url = request.instance_url
         integration.email        = request.email
         integration.api_token    = request.api_token
-        integration.project_key  = request.project_key
+        if request.project_key:
+            integration.project_key = request.project_key
     else:
         integration = JiraIntegration(
             user_id      = user.id,
@@ -118,20 +122,22 @@ async def connect_jira(
 async def jira_status(db: Session = Depends(get_db), authorization: str = Header(...)):
     token = authorization.removeprefix("Bearer ").strip()
     user = auth_service.get_current_user(db, token)
+
+    oauth_connected = bool(user.jira_access_token and user.jira_cloud_id)
     integration = db.query(JiraIntegration).filter(
         JiraIntegration.user_id == user.id
     ).first()
 
-    if not integration:
+    if not integration and not oauth_connected:
         return {"connected": False}
 
-    masked = (integration.api_token[:4] + "***") if integration.api_token else "***"
     return {
-        "connected":    True,
-        "instance_url": integration.instance_url,
-        "email":        integration.email,
-        "api_token":    masked,
-        "project_key":  integration.project_key,
+        "connected":   True,
+        "oauth":       oauth_connected,
+        "email":       integration.email if integration else "",
+        "space_url":   integration.instance_url if integration else "",
+        "cloud_id":    integration.space_cloud_id if integration else None,
+        "project_key": integration.project_key if integration else None,
     }
 
 
@@ -146,8 +152,67 @@ async def disconnect_jira(db: Session = Depends(get_db), authorization: str = He
     ).first()
     if integration:
         db.delete(integration)
-        db.commit()
+    user.jira_access_token  = None
+    user.jira_refresh_token = None
+    user.jira_cloud_id      = None
+    db.commit()
     return {"disconnected": True}
+
+
+# ── /jira/sites ───────────────────────────────────────────────────────────────
+
+@router.get("/jira/sites")
+async def jira_sites(db: Session = Depends(get_db), authorization: str = Header(...)):
+    token = authorization.removeprefix("Bearer ").strip()
+    user = auth_service.get_current_user(db, token)
+
+    if not user.jira_access_token:
+        raise HTTPException(status_code=400, detail="Jira account not connected.")
+
+    try:
+        sites = await jira_oauth_service.get_accessible_sites(user.jira_access_token)
+    except HTTPException as exc:
+        if exc.status_code == 401 and user.jira_refresh_token:
+            token_data = await jira_oauth_service.refresh_access_token(user.jira_refresh_token)
+            user.jira_access_token = token_data["access_token"]
+            if token_data.get("refresh_token"):
+                user.jira_refresh_token = token_data["refresh_token"]
+            db.commit()
+            sites = await jira_oauth_service.get_accessible_sites(user.jira_access_token)
+        else:
+            raise
+
+    return {"sites": sites}
+
+
+# ── /jira/project-key ─────────────────────────────────────────────────────────
+
+@router.patch("/jira/project-key")
+async def update_project_key(
+    request: UpdateProjectKeyRequest,
+    db: Session = Depends(get_db),
+    authorization: str = Header(...),
+):
+    token = authorization.removeprefix("Bearer ").strip()
+    user = auth_service.get_current_user(db, token)
+
+    if not request.project_key or not request.project_key.strip():
+        raise HTTPException(status_code=400, detail="project_key is required (e.g. SCRUM).")
+
+    integration = db.query(JiraIntegration).filter(
+        JiraIntegration.user_id == user.id
+    ).first()
+    if not integration:
+        raise HTTPException(status_code=404, detail="No Jira account connected.")
+
+    integration.project_key = request.project_key.strip()
+    if request.space_url:
+        integration.instance_url = request.space_url.strip().rstrip("/")
+    if request.cloud_id:
+        integration.space_cloud_id = request.cloud_id.strip()
+    db.commit()
+
+    return {"status": "updated", "project_key": integration.project_key}
 
 
 # ── /gaps/analyze ─────────────────────────────────────────────────────────────
@@ -177,17 +242,55 @@ async def analyze_gaps(
     loop = asyncio.get_running_loop()
 
     # 1. Fetch Jira issues
-    logger.info("Fetching issues for project %s from %s", integration.project_key, integration.instance_url)
+    logger.info("Fetching issues for project %s", integration.project_key)
     try:
-        raw_issues = await loop.run_in_executor(
-            None,
-            jira_service.get_project_issues,
-            integration.instance_url,
-            integration.email,
-            integration.api_token,
-            integration.project_key,
-            None,
-        )
+        if False:  # OAuth path disabled — using Basic Auth via api_token
+            cloud_id = integration.space_cloud_id or user.jira_cloud_id
+            access_token = user.jira_access_token
+
+            # Try with current token; if 401, refresh once and retry
+            first_attempt_failed = False
+            try:
+                raw_issues = await jira_oauth_service.get_project_issues_flat(
+                    access_token, cloud_id, integration.project_key
+                )
+            except HTTPException as exc:
+                if exc.status_code != 401:
+                    raise
+                first_attempt_failed = True
+
+            if first_attempt_failed:
+                if not user.jira_refresh_token:
+                    raise HTTPException(
+                        status_code=401,
+                        detail="Jira token expired. Please reconnect your Jira account.",
+                    )
+                try:
+                    token_data = await jira_oauth_service.refresh_access_token(user.jira_refresh_token)
+                    access_token = token_data["access_token"]
+                    user.jira_access_token = access_token
+                    if token_data.get("refresh_token"):
+                        user.jira_refresh_token = token_data["refresh_token"]
+                    integration.api_token = access_token
+                    db.commit()
+                except Exception:
+                    raise HTTPException(
+                        status_code=401,
+                        detail="Jira token expired and refresh failed. Please reconnect your Jira account.",
+                    )
+                raw_issues = await jira_oauth_service.get_project_issues_flat(
+                    access_token, cloud_id, integration.project_key
+                )
+        else:
+            raw_issues = await loop.run_in_executor(
+                None,
+                jira_service.get_project_issues,
+                integration.instance_url,
+                integration.email,
+                integration.api_token,
+                integration.project_key,
+                None,
+            )
     except HTTPException as exc:
         logger.error("Jira API error fetching issues: %s", exc.detail)
         raise

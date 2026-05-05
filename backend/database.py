@@ -55,10 +55,11 @@ class JiraIntegration(Base):
 
 	id           = Column(Integer, primary_key=True, index=True)
 	user_id      = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-	instance_url = Column(String, nullable=False)
-	email        = Column(String, nullable=False)
-	api_token    = Column(String, nullable=False)
-	project_key  = Column(String, nullable=True)
+	instance_url    = Column(String, nullable=False)
+	email           = Column(String, nullable=False)
+	api_token       = Column(String, nullable=False)
+	project_key     = Column(String, nullable=True)
+	space_cloud_id  = Column(String, nullable=True)
 	created_at   = Column(DateTime, default=datetime.utcnow)
 
 

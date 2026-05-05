@@ -176,6 +176,18 @@ class ApiService {
         return (await apiClient.delete('/api/production/v2/jira/disconnect')).data;
     }
 
+    async getJiraSites(): Promise<any> {
+        return (await apiClient.get('/api/production/v2/jira/sites')).data;
+    }
+
+    async updateJiraProjectKey(projectKey: string, spaceUrl?: string, cloudId?: string): Promise<any> {
+        return (await apiClient.patch('/api/production/v2/jira/project-key', {
+            project_key: projectKey,
+            ...(spaceUrl  ? { space_url: spaceUrl }  : {}),
+            ...(cloudId   ? { cloud_id:  cloudId  }  : {}),
+        })).data;
+    }
+
     async analyzeGaps(repoOwner: string, repoName: string): Promise<any> {
         return (await apiClient.post(
             '/api/production/v2/gaps/analyze',

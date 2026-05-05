@@ -65,23 +65,40 @@ async def jira_callback(
     Atlassian redirects here after user consent.
     `state` carries the user's JWT so we can match the Jira tokens to the right account.
     """
+    print(">>> JIRA CALLBACK HIT", flush=True)
+
     try:
         user = auth_service.get_current_user(db, state)
-    except HTTPException:
+        print(f">>> JIRA CALLBACK: user id={user.id}", flush=True)
+    except HTTPException as e:
+        print(f">>> JIRA CALLBACK: auth failed: {e.detail}", flush=True)
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/#production?jira_error=auth_failed"
         )
 
     try:
+        print(">>> JIRA CALLBACK: exchanging code", flush=True)
         token_data = await jira_oauth_service.exchange_code_for_token(code)
+        print(f">>> JIRA CALLBACK: token_data keys={list(token_data.keys())}", flush=True)
+        print(f">>> JIRA CALLBACK: has_refresh={bool(token_data.get('refresh_token'))}", flush=True)
         access_token = token_data["access_token"]
         refresh_token = token_data.get("refresh_token")
         cloud_id = await jira_oauth_service.get_cloud_id(access_token)
 
-        user.jira_access_token = access_token
+        # Persist OAuth tokens immediately so a later failure doesn't lose them
+        user.jira_access_token  = access_token
         user.jira_refresh_token = refresh_token
-        user.jira_cloud_id = cloud_id
+        user.jira_cloud_id      = cloud_id
         db.commit()
+        print(f">>> JIRA CALLBACK: tokens saved. access={bool(access_token)} refresh={bool(refresh_token)} cloud={bool(cloud_id)}", flush=True)
+
+        # Try to fetch the user's email — not critical if it fails
+        jira_email = "oauth"
+        try:
+            myself = await jira_oauth_service.get_myself(access_token, cloud_id)
+            jira_email = myself.get("emailAddress") or myself.get("displayName") or "oauth"
+        except Exception:
+            pass
 
         integration = db.query(JiraIntegration).filter(
             JiraIntegration.user_id == user.id
@@ -89,17 +106,19 @@ async def jira_callback(
         if not integration:
             integration = JiraIntegration(
                 user_id=user.id,
-                instance_url=f"https://api.atlassian.com/ex/jira/{cloud_id}",
-                email="oauth",
+                instance_url="",
+                email=jira_email,
                 api_token=access_token,
             )
             db.add(integration)
         else:
             integration.api_token = access_token
-            integration.instance_url = f"https://api.atlassian.com/ex/jira/{cloud_id}"
+            integration.email     = jira_email
         db.commit()
 
-    except HTTPException:
+    except Exception as e:
+        print(f">>> JIRA CALLBACK ERROR: {type(e).__name__}: {e}", flush=True)
+        import traceback; traceback.print_exc()
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/#production?jira_error=token_exchange_failed"
         )

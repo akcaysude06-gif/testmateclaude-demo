@@ -241,6 +241,7 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
     const [error,             setError]             = useState<string | null>(null);
     const [gaps,              setGaps]              = useState<GapItem[]>([]);
     const [activeTab,         setActiveTab]         = useState<SprintTab>('in_progress');
+    const [gapFilters,        setGapFilters]        = useState<Set<keyof typeof GAP_META>>(new Set());
     const [expanded,          setExpanded]          = useState<Set<string>>(new Set());
     const [simulating,        setSimulating]        = useState<string | null>(null);
     const [filePreview,       setFilePreview]       = useState<FilePreview | null>(null);
@@ -414,7 +415,8 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
 
     const grouped: Record<SprintTab, GapItem[]> = { todo: [], in_progress: [], done: [] };
     gaps.forEach(g => grouped[classifyJiraStatus(g.status)].push(g));
-    const visibleGaps = grouped[activeTab];
+    const tabGaps    = grouped[activeTab];
+    const visibleGaps = gapFilters.size > 0 ? tabGaps.filter(g => gapFilters.has(g.gap_type)) : tabGaps;
 
     // ── Results ───────────────────────────────────────────────────────────────
     return (
@@ -445,18 +447,33 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                 {/* Stats cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
                     {(['complete', 'untested', 'not_started', 'non_code_task'] as const).map(type => {
-                        const m   = GAP_META[type];
-                        const cnt = stats[type] ?? 0;
-                        const pct = (stats[`${type}_pct` as keyof GapStats] as number) ?? 0;
+                        const m        = GAP_META[type];
+                        const cnt      = stats[type] ?? 0;
+                        const pct      = (stats[`${type}_pct` as keyof GapStats] as number) ?? 0;
+                        const isActive = gapFilters.has(type);
+                        const ALL_TYPES = ['complete', 'untested', 'not_started', 'non_code_task'] as const;
+                        const toggleFilter = (t: keyof typeof GAP_META) => {
+                            setGapFilters(prev => {
+                                const next = new Set(prev);
+                                next.has(t) ? next.delete(t) : next.add(t);
+                                return next.size === ALL_TYPES.length ? new Set() : next;
+                            });
+                        };
                         return (
-                            <div key={type} className={`border rounded-xl p-4 ${m.bg}`}>
+                            <button
+                                key={type}
+                                onClick={() => toggleFilter(type)}
+                                className={`border rounded-xl p-4 text-left transition-all ${m.bg} ${
+                                    isActive ? 'ring-2 ring-offset-1 ring-offset-transparent ring-white/30' : 'hover:brightness-125'
+                                }`}
+                            >
                                 <div className="flex items-center space-x-2 mb-1">
                                     {m.icon}
                                     <span className={`text-xs font-semibold ${m.color}`}>{m.label}</span>
                                 </div>
                                 <p className="text-2xl font-bold text-white">{cnt}</p>
                                 <p className="text-xs text-slate-500">{pct}% of tasks</p>
-                            </div>
+                            </button>
                         );
                     })}
                 </div>
@@ -469,7 +486,7 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                         return (
                             <button
                                 key={tab.id}
-                                onClick={() => setActiveTab(tab.id)}
+                                onClick={() => { setActiveTab(tab.id); setGapFilters(new Set()); }}
                                 className={`flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-lg text-xs font-medium transition-all ${
                                     active ? 'bg-white/10 text-white shadow' : 'text-slate-500 hover:text-slate-300'
                                 }`}
@@ -487,7 +504,9 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                 {/* Gap list */}
                 {visibleGaps.length === 0 ? (
                     <div className="text-center py-12 text-slate-500 text-sm">
-                        {SPRINT_TABS.find(t => t.id === activeTab)?.emptyText}
+                        {gapFilters.size > 0
+                            ? `No ${[...gapFilters].map(f => `'${GAP_META[f].label}'`).join(' or ')} tasks in this tab.`
+                            : SPRINT_TABS.find(t => t.id === activeTab)?.emptyText}
                     </div>
                 ) : (
                     <div className="space-y-2">
