@@ -168,7 +168,7 @@ const ScopeStep: React.FC<ScopeStepProps> = ({ repo, codeType, onConfirm }) => {
                             onClick={() => onConfirm('whole-project', [])}
                             className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-semibold text-sm transition-all flex items-center justify-center space-x-2"
                         >
-                            <span>Start AI Chat</span>
+                            <span>Next</span>
                             <ChevronRight className="w-4 h-4" />
                         </button>
                     </div>
@@ -214,7 +214,7 @@ const ScopeStep: React.FC<ScopeStepProps> = ({ repo, codeType, onConfirm }) => {
                             disabled={selectedFiles.size === 0}
                             className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-slate-700 disabled:to-slate-700 disabled:cursor-not-allowed text-white font-semibold text-sm transition-all flex items-center justify-center space-x-2"
                         >
-                            <span>Start AI Chat</span>
+                            <span>Next</span>
                             <ChevronRight className="w-4 h-4" />
                         </button>
                     </div>

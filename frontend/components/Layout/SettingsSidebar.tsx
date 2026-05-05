@@ -27,7 +27,7 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode, o
     };
 
     const handlePrivacy = () => {
-        window.open('/account', '_blank');
+        window.location.href = '/account';
     };
 
     const positionClass = side === 'right' ? 'right-0' : 'left-0';

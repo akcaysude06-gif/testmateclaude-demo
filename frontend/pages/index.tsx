@@ -23,6 +23,7 @@ export default function Home() {
     const [currentMode, setCurrentMode] = useState<ModeType>(null);
     const [currentLevel, setCurrentLevel] = useState<LevelType>(null);
     const [user, setUser] = useState<any>(null);
+    const [jiraStatus, setJiraStatus] = useState<{ connected: boolean; email?: string; instance_url?: string } | null>(null);
 
     // Check if user is already authenticated on mount
     useEffect(() => {
@@ -52,6 +53,13 @@ export default function Home() {
                         }
                     } catch {
                         // ignore malformed prefs
+                    }
+
+                    try {
+                        const status = await apiService.getJiraStatus();
+                        setJiraStatus(status);
+                    } catch {
+                        // ignore jira status fetch failure
                     }
                 } catch (error) {
                     console.error('Token verification failed:', error);
@@ -130,8 +138,9 @@ export default function Home() {
         setUser(userData);
         setIsAuthenticated(true);
         try {
-            const jiraStatus = await apiService.getJiraStatus();
-            if (!jiraStatus?.connected) {
+            const status = await apiService.getJiraStatus();
+            setJiraStatus(status);
+            if (!status?.connected) {
                 setShowJiraSetup(true);
             }
         } catch {
@@ -222,7 +231,15 @@ export default function Home() {
 
     // Authenticated - show main app
     return (
-        <Layout onLogout={handleLogout} user={user} fullWidth={currentMode === 'production'} onLogoClick={handleBackToModes}>
+        <Layout
+            onLogout={handleLogout}
+            user={user}
+            fullWidth={currentMode === 'production'}
+            onLogoClick={handleBackToModes}
+            onSettings={() => router.push('/account')}
+            jiraStatus={jiraStatus}
+            onConnectJira={() => setShowJiraSetup(true)}
+        >
             {!currentMode && (
                 <ModeSelection onSelectMode={handleSelectMode} />
             )}

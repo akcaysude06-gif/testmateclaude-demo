@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sparkles, GitBranch } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { authUtils } from '../../utils/auth';
+
+const REMEMBER_ME_KEY = 'testmate_privacy_remember_me';
 
 interface LoginScreenProps {
     onLogin: () => void;
@@ -10,12 +12,24 @@ interface LoginScreenProps {
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onLoginWithToken }) => {
     const [isLoading, setIsLoading] = useState(false);
+    const [rememberMe, setRememberMe] = useState(false);
+
+    useEffect(() => {
+        setRememberMe(localStorage.getItem(REMEMBER_ME_KEY) === 'true');
+    }, []);
+
+    const handleRememberMeChange = (checked: boolean) => {
+        setRememberMe(checked);
+        localStorage.setItem(REMEMBER_ME_KEY, String(checked));
+    };
 
     const handleGithubLogin = async () => {
         setIsLoading(true);
         authUtils.removeToken();
         try {
             const { auth_url } = await apiService.getGithubAuthUrl(true);
+            // Store intent so callback knows whether to persist token
+            localStorage.setItem(REMEMBER_ME_KEY, String(rememberMe));
             window.location.href = auth_url;
         } catch (error) {
             console.error('Failed to initiate GitHub login:', error);
@@ -51,6 +65,16 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onLoginWithToken }) 
                                 </>
                             )}
                         </button>
+
+                        <label className="flex items-center gap-2.5 cursor-pointer px-1 select-none">
+                            <input
+                                type="checkbox"
+                                checked={rememberMe}
+                                onChange={e => handleRememberMeChange(e.target.checked)}
+                                className="w-4 h-4 rounded border-white/30 bg-white/10 accent-purple-500 cursor-pointer"
+                            />
+                            <span className="text-purple-200 text-sm">Remember me</span>
+                        </label>
 
                         <p className="text-purple-200 text-sm text-center pt-1">
                             Secure OAuth authentication • Your code stays private

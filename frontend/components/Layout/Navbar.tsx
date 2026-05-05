@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LogOut, Sparkles, User, Palette, Check } from 'lucide-react';
+import { LogOut, Sparkles, User, Palette, Check, Settings, LayoutGrid, Link2, CheckCircle2, ChevronDown } from 'lucide-react';
 
 const THEMES = [
     { id: 'lavender',   label: 'Lavender',   from: '#2e2440', via: '#4a3060', accent: '#c4b5fd' },
@@ -22,13 +22,19 @@ interface NavbarProps {
     onLogout: () => void;
     user?: any;
     onLogoClick?: () => void;
+    onSettings?: () => void;
+    onBackToModes?: () => void;
+    jiraStatus?: { connected: boolean; email?: string; instance_url?: string } | null;
+    onConnectJira?: () => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick }) => {
+const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick, onSettings, onBackToModes, jiraStatus, onConnectJira }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [activeTheme, setActiveTheme] = useState<string>('lavender');
     const [dropdownOpen, setDropdownOpen] = useState(false);
+    const [userMenuOpen, setUserMenuOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const userMenuRef = useRef<HTMLDivElement>(null);
 
     const handleLogoutClick = () => setShowConfirm(true);
     const handleConfirm = () => { setShowConfirm(false); onLogout(); };
@@ -45,10 +51,13 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick }) => {
             if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
                 setDropdownOpen(false);
             }
+            if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+                setUserMenuOpen(false);
+            }
         };
-        if (dropdownOpen) document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [dropdownOpen]);
+    }, []);
 
     const handleTheme = (id: string) => {
         setActiveTheme(id);
@@ -62,7 +71,7 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick }) => {
 
     return (
         <>
-        <nav className="bg-black/20 backdrop-blur-lg border-b border-white/10">
+        <nav className="bg-black/20 backdrop-blur-lg border-b border-white/10 relative z-40">
             <div className="px-16">
                 <div className="flex items-center justify-between h-16">
                     <button onClick={onLogoClick} className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
@@ -91,7 +100,7 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick }) => {
 
                                 {dropdownOpen && (
                                     <div className="absolute right-0 mt-2 w-44 rounded-xl border border-white/10
-                                                    bg-black/70 backdrop-blur-xl shadow-xl z-50 p-2 flex flex-col gap-1">
+                                                    bg-black/70 backdrop-blur-xl shadow-xl z-[9999] p-2 flex flex-col gap-1">
                                         {THEMES.map(theme => (
                                             <button
                                                 key={theme.id}
@@ -120,29 +129,89 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick }) => {
                                 )}
                             </div>
 
-                            {/* User avatar + name */}
-                            <div className="flex items-center space-x-2">
-                                {user.avatar_url ? (
-                                    <img
-                                        src={user.avatar_url}
-                                        alt={user.username}
-                                        className="w-8 h-8 rounded-full border-2 border-purple-400"
-                                    />
-                                ) : (
-                                    <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center">
-                                        <User className="w-5 h-5 text-white" />
+                            {/* User avatar + name → dropdown */}
+                            <div className="relative" ref={userMenuRef}>
+                                <button
+                                    onClick={() => setUserMenuOpen(v => !v)}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg
+                                               hover:bg-white/10 transition-all"
+                                >
+                                    {user.avatar_url ? (
+                                        <img
+                                            src={user.avatar_url}
+                                            alt={user.username}
+                                            className="w-8 h-8 rounded-full border-2 border-purple-400"
+                                        />
+                                    ) : (
+                                        <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center">
+                                            <User className="w-5 h-5 text-white" />
+                                        </div>
+                                    )}
+                                    <span className="text-purple-200 text-sm">{user.username}</span>
+                                    <ChevronDown className={`w-3.5 h-3.5 text-purple-300 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
+                                </button>
+
+                                {userMenuOpen && (
+                                    <div className="absolute right-0 mt-2 w-56 rounded-xl border border-white/10
+                                                    bg-black/80 backdrop-blur-xl shadow-2xl z-[9999] py-1.5 flex flex-col">
+                                        {/* Settings */}
+                                        <button
+                                            onClick={() => { setUserMenuOpen(false); onSettings?.(); }}
+                                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-white/70
+                                                       hover:text-white hover:bg-white/8 transition-all text-left"
+                                        >
+                                            <Settings className="w-4 h-4 flex-shrink-0" />
+                                            Settings
+                                        </button>
+
+                                        {/* Back to modes */}
+                                        <button
+                                            onClick={() => { setUserMenuOpen(false); onBackToModes?.(); }}
+                                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-white/70
+                                                       hover:text-white hover:bg-white/8 transition-all text-left"
+                                        >
+                                            <LayoutGrid className="w-4 h-4 flex-shrink-0" />
+                                            Back to modes
+                                        </button>
+
+                                        <div className="mx-3 my-1 border-t border-white/10" />
+
+                                        {/* Jira */}
+                                        {jiraStatus?.connected ? (
+                                            <div className="flex items-center gap-3 px-4 py-2.5 text-sm cursor-default">
+                                                <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-green-400" />
+                                                <div className="min-w-0">
+                                                    <p className="text-green-300 leading-tight">Jira connected</p>
+                                                    {jiraStatus.email && (
+                                                        <p className="text-white/30 text-xs truncate">{jiraStatus.email}</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={() => { setUserMenuOpen(false); onConnectJira?.(); }}
+                                                className="flex items-center gap-3 px-4 py-2.5 text-sm text-white/70
+                                                           hover:text-white hover:bg-white/8 transition-all text-left"
+                                            >
+                                                <Link2 className="w-4 h-4 flex-shrink-0" />
+                                                Connect Jira account
+                                            </button>
+                                        )}
+
+                                        <div className="mx-3 my-1 border-t border-white/10" />
+
+                                        {/* Logout */}
+                                        <button
+                                            onClick={() => { setUserMenuOpen(false); handleLogoutClick(); }}
+                                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-400
+                                                       hover:text-red-300 hover:bg-red-500/10 transition-all text-left"
+                                        >
+                                            <LogOut className="w-4 h-4 flex-shrink-0" />
+                                            Log out
+                                        </button>
                                     </div>
                                 )}
-                                <span className="text-purple-200 text-sm">{user.username}</span>
                             </div>
-
-                            <button
-                                onClick={handleLogoutClick}
-                                className="flex items-center space-x-2 text-purple-200 hover:text-white transition-colors"
-                            >
-                                <LogOut className="w-4 h-4" />
-                                <span>Logout</span>
-                            </button>
                         </div>
                     )}
                 </div>

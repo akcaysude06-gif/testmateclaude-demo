@@ -14,9 +14,12 @@ interface LayoutProps {
     fullWidth?: boolean;
     padding?: string;
     onLogoClick?: () => void;
+    onSettings?: () => void;
+    jiraStatus?: { connected: boolean; email?: string; instance_url?: string } | null;
+    onConnectJira?: () => void;
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, onLogout, user, onOpenBeginnerMode, fullWidth, padding, onLogoClick }) => {
+const Layout: React.FC<LayoutProps> = ({ children, onLogout, user, onOpenBeginnerMode, fullWidth, padding, onLogoClick, onSettings, jiraStatus, onConnectJira }) => {
     const [sidebarSide, setSidebarSide] = useState<'left' | 'right'>('right');
 
     useEffect(() => {
@@ -45,7 +48,15 @@ const Layout: React.FC<LayoutProps> = ({ children, onLogout, user, onOpenBeginne
 
     return (
         <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, var(--theme-from), var(--theme-via), var(--theme-from))' }}>
-            <Navbar onLogout={onLogout} user={user} onLogoClick={onLogoClick} />
+            <Navbar
+                onLogout={onLogout}
+                user={user}
+                onLogoClick={onLogoClick}
+                onSettings={onSettings}
+                onBackToModes={onLogoClick}
+                jiraStatus={jiraStatus}
+                onConnectJira={onConnectJira}
+            />
             <div
                 className={fullWidth ? '' : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 pr-16'}
                 style={fullWidth ? { padding: fullWidthPadding } : undefined}
