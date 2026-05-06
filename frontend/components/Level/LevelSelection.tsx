@@ -10,13 +10,15 @@ interface LevelSelectionProps {
 const LevelSelection: React.FC<LevelSelectionProps> = ({ onSelectLevel, onBack }) => {
     return (
         <>
-            <button
-                onClick={onBack}
-                className="text-purple-300 hover:text-white mb-8 flex items-center space-x-2"
-            >
-                <ChevronRight className="w-4 h-4 transform rotate-180" />
-                <span>Back to modes</span>
-            </button>
+            <div className="max-w-4xl mx-auto pt-10">
+                <button
+                    onClick={onBack}
+                    className="text-purple-300 hover:text-white mb-8 flex items-center space-x-2"
+                >
+                    <ChevronRight className="w-4 h-4 transform rotate-180" />
+                    <span>Back to modes</span>
+                </button>
+            </div>
 
             <div className="text-center mb-12">
                 <h2 className="text-4xl font-bold text-white mb-4">Select Your Level</h2>

@@ -396,7 +396,7 @@ const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, o
             <div className="min-w-0 min-h-0 flex flex-col overflow-hidden">
 
                 {/* Main content area */}
-                <div className="flex-1 min-w-0 overflow-y-auto">
+                <div className="scroll-subtle flex-1 min-w-0 overflow-y-auto">
                     {showWizard ? (
 
                         /* ── Wizard ──────────────────────────────────────── */
@@ -566,7 +566,7 @@ const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, o
                                 compact
                             />
                         ) : (
-                            <div className="h-full overflow-y-auto p-4 space-y-4">
+                            <div className="scroll-subtle h-full overflow-y-auto p-4 space-y-4">
                                 {!lastSimResult ? (
                                     <div className="flex flex-col items-center justify-center h-48 text-center space-y-2">
                                         <FlaskConical className="w-8 h-8 text-slate-600" />

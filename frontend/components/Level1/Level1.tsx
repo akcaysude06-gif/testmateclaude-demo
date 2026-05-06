@@ -6,7 +6,6 @@ import ToolLandscape from './ToolLandscape';
 import WhatNotToAutomate from './WhatNotToAutomate';
 import ScenarioPicker from './ScenarioPicker';
 import { apiService } from '../../services/api';
-
 type Phase = 'why' | 'tools' | 'what-not' | 'generate' | 'results';
 
 const PHASES: { id: Phase; label: string }[] = [
@@ -141,6 +140,7 @@ const Level1: React.FC<Level1Props> = ({ onBack }) => {
     };
 
     return (
+        <div style={{ padding: '1.5rem 1.25rem' }}>
         <div className="max-w-[1600px] mx-auto">
             {/* Header */}
             <button
@@ -231,6 +231,7 @@ const Level1: React.FC<Level1Props> = ({ onBack }) => {
             {phase === 'results' && generatedCode && (
                 <CodeDisplay code={generatedCode} onReset={handleReset} />
             )}
+        </div>
         </div>
     );
 };

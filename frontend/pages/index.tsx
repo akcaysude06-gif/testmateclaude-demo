@@ -25,6 +25,54 @@ export default function Home() {
     const [user, setUser] = useState<any>(null);
     const [jiraStatus, setJiraStatus] = useState<{ connected: boolean; email?: string; instance_url?: string } | null>(null);
 
+    // Global AI chat
+    const [aiChatOpen, setAiChatOpen]                       = useState(false);
+    const [aiChatInjectedMessage, setAiChatInjectedMessage] = useState<string | null>(null);
+
+    const getPageKey = (): string => {
+        if (currentMode === 'production') return 'production';
+        if (currentMode === 'guided' && currentLevel === 0) return 'level0';
+        if (currentMode === 'guided' && currentLevel === 1) return 'level1';
+        if (currentMode === 'guided') return 'level-selection';
+        return 'home';
+    };
+
+    const handleAIFeedback = (feedback: string) => {
+        setAiChatInjectedMessage(feedback);
+        setAiChatOpen(true);
+    };
+
+    const getAiContext = (): string => {
+        if (currentMode === 'production')
+            return `CURRENT PAGE: Production Mode.
+Visible navigation: a back arrow (top-left) that returns to the Home / Mode Selection screen.
+The user is working through: Connect Repository → Select Scope → Jira & Dashboard.
+To leave Production Mode and go elsewhere, the user clicks that back arrow.`;
+
+        if (currentMode === 'guided') {
+            if (currentLevel === 0)
+                return `CURRENT PAGE: Level 0 — Manual Testing & Automation Fundamentals.
+Visible navigation: a "Back" button (top-left) that returns to the Level Selection screen.
+The user sees a list of scenarios; clicking one opens a 3-step flow (Manual Test → Why Automate? → First Automation). Inside a scenario there is a "Back to scenarios" button.
+To reach a different mode the user must first click "Back" to reach Level Selection, then "Back to modes" to reach the Home screen.`;
+
+            if (currentLevel === 1)
+                return `CURRENT PAGE: Level 1 — Introduction to Test Automation.
+Visible navigation: a back button (top-left) that steps back through phases; on the first phase ("Why Automation") it returns to the Level Selection screen.
+Phases in order: Why Automation → The Tools → What Not to Automate → See It Live → Review & Practice.
+To reach a different mode the user must first navigate back to the Level Selection screen, then click "Back to modes".`;
+
+            return `CURRENT PAGE: Level Selection screen (inside Guided Learning mode).
+Visible navigation: a "Back to modes" button (top-left) that returns to the Home / Mode Selection screen.
+Two level cards are shown: Level 0 (Manual Testing Fundamentals) and Level 1 (Introduction to Test Automation).
+To switch to Production Mode: click "Back to modes" (top-left), then click the "Production Mode" card on the Home screen.`;
+        }
+
+        return `CURRENT PAGE: Home / Mode Selection screen.
+No back button — this is the top level of the app. The TestMate logo in the navbar also stays on this screen.
+Two mode cards are shown: "Guided Learning" (click to go to Level Selection) and "Production Mode" (click to enter Production Mode directly).`;
+    };
+
     const refreshJiraStatus = useCallback(async () => {
         try {
             const status = await apiService.getJiraStatus();
@@ -248,11 +296,19 @@ export default function Home() {
         <Layout
             onLogout={handleLogout}
             user={user}
-            fullWidth={currentMode === 'production'}
+            fullWidth={currentMode === 'production' || currentMode === 'guided'}
+            padding={currentMode === 'guided' ? '0' : undefined}
             onLogoClick={handleBackToModes}
             onSettings={() => router.push('/account')}
             jiraStatus={jiraStatus}
             onConnectJira={() => setShowJiraSetup(true)}
+            showAIChat
+            aiChatOpen={aiChatOpen}
+            onAIChatToggle={setAiChatOpen}
+            aiChatContext={getAiContext()}
+            aiChatPageKey={getPageKey()}
+            aiChatInjectedMessage={aiChatInjectedMessage}
+            onAIChatInjectedHandled={() => setAiChatInjectedMessage(null)}
         >
             {!currentMode && (
                 <ModeSelection onSelectMode={handleSelectMode} />
@@ -266,7 +322,7 @@ export default function Home() {
             )}
 
             {currentMode === 'guided' && currentLevel === 0 && (
-                <Level0 onBack={handleBackToLevels} />
+                <Level0 onBack={handleBackToLevels} onAIFeedback={handleAIFeedback} />
             )}
 
             {currentMode === 'guided' && currentLevel === 1 && (

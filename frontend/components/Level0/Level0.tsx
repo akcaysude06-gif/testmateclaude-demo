@@ -1,34 +1,32 @@
 import React, { useState } from 'react';
-import { ChevronRight, CheckCircle, Lock } from 'lucide-react';
+import { ChevronRight, CheckCircle, Lock, Sparkles } from 'lucide-react';
 import { type Scenario, SCENARIOS } from '../../data/scenarios';
 
 interface Level0Props {
     onBack: () => void;
+    onAIFeedback: (feedback: string) => void;
 }
 
 // ─── LEVEL 0 SHELL ──────────────────────────────────────────────────────────
 
-const Level0: React.FC<Level0Props> = ({ onBack }) => {
+const Level0: React.FC<Level0Props> = ({ onBack, onAIFeedback }) => {
     const [completedScenarios, setCompleted] = useState<Set<string>>(new Set());
     const [activeScenario, setActive]        = useState<string | null>(null);
 
     const isUnlocked = (i: number) => i === 0 || completedScenarios.has(SCENARIOS[i - 1].id);
     const complete   = (id: string) => { setCompleted(p => new Set(p).add(id)); setActive(null); };
 
-    const active = SCENARIOS.find(s => s.id === activeScenario);
-    if (active) {
-        return (
-            <ScenarioShell
-                scenario={active}
-                onComplete={() => complete(active.id)}
-                onBack={() => setActive(null)}
-            />
-        );
-    }
-
+    const active  = SCENARIOS.find(s => s.id === activeScenario);
     const allDone = completedScenarios.size === SCENARIOS.length;
 
-    return (
+    const mainContent = active ? (
+        <ScenarioShell
+            scenario={active}
+            onComplete={() => complete(active.id)}
+            onBack={() => setActive(null)}
+            onAIFeedback={onAIFeedback}
+        />
+    ) : (
         <div className="max-w-3xl mx-auto">
             <button onClick={onBack} className="flex items-center space-x-2 text-slate-400 hover:text-white transition-colors mb-10 text-sm">
                 <ChevronRight className="w-4 h-4 rotate-180" /><span>Back</span>
@@ -104,13 +102,19 @@ const Level0: React.FC<Level0Props> = ({ onBack }) => {
             )}
         </div>
     );
+
+    return (
+        <div style={{ padding: '1.5rem 1.25rem' }}>
+            {mainContent}
+        </div>
+    );
 };
 
 // ─── SCENARIO SHELL (3-step wrapper for every scenario) ─────────────────────
 
 type ScenarioStep = 'manual' | 'why' | 'automation';
 
-const ScenarioShell: React.FC<{ scenario: Scenario; onComplete: () => void; onBack: () => void }> = ({ scenario, onComplete, onBack }) => {
+const ScenarioShell: React.FC<{ scenario: Scenario; onComplete: () => void; onBack: () => void; onAIFeedback: (feedback: string) => void }> = ({ scenario, onComplete, onBack, onAIFeedback }) => {
     const [step, setStep]           = useState<ScenarioStep>('manual');
     const [doneSteps, setDoneSteps] = useState<Set<ScenarioStep>>(new Set());
 
@@ -160,7 +164,7 @@ const ScenarioShell: React.FC<{ scenario: Scenario; onComplete: () => void; onBa
             </div>
 
             {/* Step content */}
-            {step === 'manual'     && <ManualStep     scenario={scenario} onComplete={() => completeStep('manual', 'why')} />}
+            {step === 'manual'     && <ManualStep     scenario={scenario} onComplete={() => completeStep('manual', 'why')} onAIFeedback={onAIFeedback} />}
             {step === 'why'        && <WhyStep        scenario={scenario} onComplete={() => completeStep('why', 'automation')} />}
             {step === 'automation' && <AutomationStep scenario={scenario} onComplete={() => completeStep('automation', 'done')} />}
         </div>
@@ -2139,12 +2143,11 @@ driver.quit()`,
 
 // ─── STEP A: MANUAL TEST ────────────────────────────────────────────────────
 
-const ManualStep: React.FC<{ scenario: Scenario; onComplete: () => void }> = ({ scenario, onComplete }) => {
-    const [phase, setPhase]         = useState<'intro'|'testing'|'write'|'feedback'|'reflection'>('intro');
-    const [notes, setNotes]         = useState('');
-    const [feedback, setFeedback]   = useState('');
-    const [loading, setLoading]     = useState(false);
-    const content                   = CONTENT[scenario.id];
+const ManualStep: React.FC<{ scenario: Scenario; onComplete: () => void; onAIFeedback: (feedback: string) => void }> = ({ scenario, onComplete, onAIFeedback }) => {
+    const [phase, setPhase]   = useState<'intro'|'testing'|'write'|'feedback'|'reflection'>('intro');
+    const [notes, setNotes]   = useState('');
+    const [loading, setLoading] = useState(false);
+    const content               = CONTENT[scenario.id];
 
     const evaluate = async () => {
         if (notes.trim().length < 20) return;
@@ -2155,9 +2158,9 @@ const ManualStep: React.FC<{ scenario: Scenario; onComplete: () => void }> = ({ 
                 body: JSON.stringify({ test_steps: notes, scenario: scenario.title, url: scenario.url }),
             });
             const data = await res.json();
-            setFeedback(data.feedback);
+            onAIFeedback(data.feedback);
         } catch {
-            setFeedback('Could not retrieve feedback. Is the backend running?');
+            onAIFeedback('Could not retrieve AI feedback. Is the backend running?');
         } finally {
             setLoading(false);
             setPhase('feedback');
@@ -2236,9 +2239,12 @@ const ManualStep: React.FC<{ scenario: Scenario; onComplete: () => void }> = ({ 
                     <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-3">Your Submission</p>
                     <pre className="text-slate-400 text-sm whitespace-pre-wrap font-mono leading-relaxed">{notes}</pre>
                 </div>
-                <div className="border border-purple-500/30 rounded-xl p-6 bg-purple-500/5">
-                    <p className="text-xs text-purple-400 uppercase tracking-wide font-medium mb-3">AI Feedback</p>
-                    <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">{feedback}</div>
+                <div className="border border-purple-500/30 rounded-xl p-5 bg-purple-500/5 flex items-start space-x-3">
+                    <Sparkles className="w-4 h-4 text-purple-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                        <p className="text-purple-300 text-sm font-medium mb-1">AI feedback ready</p>
+                        <p className="text-slate-400 text-sm">Your test steps have been evaluated. Open the <span className="text-purple-300 font-medium">AI Chat</span> panel on the right to read the feedback and ask follow-up questions.</p>
+                    </div>
                 </div>
                 <button onClick={() => setPhase('reflection')}
                         className="w-full py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors text-sm font-medium">Continue</button>

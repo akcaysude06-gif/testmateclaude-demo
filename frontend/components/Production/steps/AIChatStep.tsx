@@ -403,7 +403,7 @@ const AIChatStep: React.FC<AIChatStepProps> = ({ config, onReset, compact = fals
                 </div>
 
                 {/* Session list */}
-                <div className="flex-1 overflow-y-auto py-1">
+                <div className="scroll-subtle flex-1 overflow-y-auto py-1">
                     {sessions.length === 0 && (
                         <div className="flex flex-col items-center justify-center h-full text-center px-3 py-8">
                             <MessageSquare className="w-6 h-6 text-slate-700 mb-2" />
@@ -494,7 +494,7 @@ const AIChatStep: React.FC<AIChatStepProps> = ({ config, onReset, compact = fals
                 <div className="flex-1 bg-white/5 border border-white/10 rounded-2xl flex flex-col overflow-hidden min-h-0">
 
                     {/* Message list */}
-                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    <div className="scroll-subtle flex-1 overflow-y-auto p-6 space-y-6">
 
                         {/* Empty state */}
                         {isEmpty && (
