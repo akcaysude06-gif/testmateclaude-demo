@@ -138,13 +138,13 @@ const ConnectedProjectsPanel: React.FC<ConnectedProjectsPanelProps> = ({
                                         <span className="text-[10px] text-slate-500 truncate">{project.jira.name}</span>
                                     </div>
                                 ) : (
-                                    <button
+                                    <div
                                         onClick={e => { e.stopPropagation(); onConnectJira(project.id); }}
-                                        className="mt-1.5 ml-5 flex items-center space-x-1 text-[10px] text-slate-500 hover:text-purple-400 transition-colors"
+                                        className="mt-1.5 ml-5 flex items-center space-x-1 text-[10px] text-slate-500 hover:text-purple-400 transition-colors cursor-pointer"
                                     >
                                         <Link2 className="w-2.5 h-2.5" />
                                         <span>Connect Jira</span>
-                                    </button>
+                                    </div>
                                 )}
                             </button>
 

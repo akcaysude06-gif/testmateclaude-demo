@@ -29,7 +29,7 @@ const LevelSelection: React.FC<LevelSelectionProps> = ({ onSelectLevel, onBack }
                     className="bg-white/5 backdrop-blur-lg rounded-2xl p-6 border border-white/10 hover:border-blue-400/50 transition-all cursor-pointer transform hover:scale-105"
                 >
                     <div className="text-3xl font-bold text-blue-400 mb-2">Level 0</div>
-                    <h3 className="text-xl font-semibold text-white mb-3">Complete Beginner</h3>
+                    <h3 className="text-xl font-semibold text-white mb-3">Learn Manual Testing Basics</h3>
                     <p className="text-purple-200 mb-4">
                         No testing experience? No problem! Learn the fundamentals of software testing from scratch.
                     </p>
@@ -43,7 +43,7 @@ const LevelSelection: React.FC<LevelSelectionProps> = ({ onSelectLevel, onBack }
                     className="bg-white/5 backdrop-blur-lg rounded-2xl p-6 border border-white/10 hover:border-purple-400/50 transition-all cursor-pointer transform hover:scale-105"
                 >
                     <div className="text-3xl font-bold text-purple-400 mb-2">Level 1</div>
-                    <h3 className="text-xl font-semibold text-white mb-3">Manual Tester</h3>
+                    <h3 className="text-xl font-semibold text-white mb-3">Learn Automation Basics</h3>
                     <p className="text-purple-200 mb-4">
                         Know manual testing but new to automation? Learn to generate Selenium tests from test cases.
                     </p>

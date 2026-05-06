@@ -49,7 +49,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({ onSelectMode }) => {
                     <div className="flex items-center justify-center w-16 h-16 bg-blue-500 rounded-2xl mb-6">
                         <BookOpen className="w-8 h-8 text-white" />
                     </div>
-                    <h3 className="text-2xl font-bold text-white mb-3">Guided Mode</h3>
+                    <h3 className="text-2xl font-bold text-white mb-3">New to Testing</h3>
                     <p className="text-purple-200 mb-6">
                         Perfect for beginners and those learning automation testing. Step-by-step guidance with AI explanations.
                     </p>
@@ -74,16 +74,20 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({ onSelectMode }) => {
                     </div>
                     <h3 className="text-2xl font-bold text-white mb-3">Production Mode</h3>
                     <p className="text-purple-200 mb-6">
-                        For experienced testers. Analyze and optimize your existing automation code with AI assistance.
+                        For experienced testers. Connect your GitHub repo and Jira projects to automatically detect test coverage gaps and get AI-powered test generation.
                     </p>
                     <div className="space-y-2 text-sm text-purple-200">
                         <div className="flex items-center space-x-2">
                             <ChevronRight className="w-4 h-4" />
-                            <span>Code Analysis & Optimization</span>
+                            <span>GitHub & Jira Integration</span>
                         </div>
                         <div className="flex items-center space-x-2">
                             <ChevronRight className="w-4 h-4" />
-                            <span>Repository Integration</span>
+                            <span>Gap Analysis & Coverage Tracking</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <ChevronRight className="w-4 h-4" />
+                            <span>AI Test Generation & Verification</span>
                         </div>
                     </div>
                     <label

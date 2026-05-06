@@ -3,6 +3,7 @@ import { User, Github, Trash2, Unlink, ExternalLink, FolderOpen, Database, Clock
 import { apiService } from '../services/api';
 import { authUtils } from '../utils/auth';
 import { loadSavedProjects, SavedProject } from '../components/Production/ConnectedProjectsPanel';
+import Navbar from '../components/Layout/Navbar';
 
 interface GithubRepo {
     id: number;
@@ -152,6 +153,12 @@ export default function AccountPage() {
         localStorage.setItem(LS.REMEMBER_ME, String(v));
     };
 
+    const handleLogout = async () => {
+        try { await apiService.logout(); } catch { /* ignore */ }
+        authUtils.removeToken();
+        window.location.href = '/';
+    };
+
     const handleDisconnectGitHub = async () => {
         try { await apiService.logout(); } catch { /* ignore */ }
         authUtils.removeToken();
@@ -202,26 +209,42 @@ export default function AccountPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center"
+            <div className="min-h-screen"
                  style={{ background: 'linear-gradient(135deg, var(--theme-from), var(--theme-via), var(--theme-from))' }}>
-                <div className="w-10 h-10 border-4 border-purple-400 border-t-transparent
-                                rounded-full animate-spin" />
+                <Navbar onLogout={handleLogout} onLogoClick={() => { window.location.href = '/'; }} privacyMode />
+                <div className="flex items-center justify-center" style={{ minHeight: 'calc(100vh - 64px)' }}>
+                    <div className="w-10 h-10 border-4 border-purple-400 border-t-transparent
+                                    rounded-full animate-spin" />
+                </div>
             </div>
         );
     }
 
     if (error) {
         return (
-            <div className="min-h-screen flex items-center justify-center text-white/60 text-sm"
+            <div className="min-h-screen"
                  style={{ background: 'linear-gradient(135deg, var(--theme-from), var(--theme-via), var(--theme-from))' }}>
-                {error}
+                <Navbar onLogout={handleLogout} onLogoClick={() => { window.location.href = '/'; }} privacyMode />
+                <div className="flex items-center justify-center text-white/60 text-sm" style={{ minHeight: 'calc(100vh - 64px)' }}>
+                    {error}
+                </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen text-white px-4 py-12"
+        <div className="min-h-screen text-white"
              style={{ background: 'linear-gradient(135deg, var(--theme-from), var(--theme-via), var(--theme-from))' }}>
+            <Navbar
+                onLogout={handleLogout}
+                user={user}
+                onLogoClick={() => { window.location.href = '/'; }}
+                onSettings={() => { window.location.href = '/account'; }}
+                jiraStatus={jiraStatus}
+                onConnectJira={() => { window.location.href = '/?connect_jira=1'; }}
+                privacyMode
+            />
+        <div className="px-4 py-12">
             <div className="max-w-xl mx-auto space-y-6">
 
                 {/* Header */}
@@ -294,6 +317,7 @@ export default function AccountPage() {
                                                         const updated = projects.filter(x => x.id !== p.id);
                                                         setProjects(updated);
                                                         localStorage.setItem('testmate_connected_projects', JSON.stringify(updated));
+                                                        window.dispatchEvent(new Event('connected-projects-changed'));
                                                         setConfirmRemoveProject(null);
                                                     }}
                                                     className="text-xs px-2 py-1 rounded bg-red-500/20 border border-red-500/40
@@ -732,6 +756,7 @@ export default function AccountPage() {
                                                                         );
                                                                         setProjects(updated);
                                                                         localStorage.setItem('testmate_connected_projects', JSON.stringify(updated));
+                                                                        window.dispatchEvent(new Event('connected-projects-changed'));
                                                                         setJiraScopeToRemove(null);
                                                                     }}
                                                                     className="text-xs px-2 py-1 rounded bg-red-500/20 border border-red-500/40
@@ -803,7 +828,7 @@ export default function AccountPage() {
                         <div className="space-y-3">
                             <p className="text-white/30 text-sm">No Jira account connected.</p>
                             <button
-                                onClick={() => window.location.href = '/'}
+                                onClick={() => window.location.href = '/?connect_jira=1'}
                                 className="flex items-center gap-2 px-4 py-2.5 rounded-lg
                                            bg-purple-500/10 border border-purple-500/30
                                            hover:bg-purple-500/20 hover:border-purple-500/50
@@ -898,6 +923,7 @@ export default function AccountPage() {
                 </div>
 
             </div>
+        </div>
         </div>
     );
 }

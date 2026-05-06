@@ -26,9 +26,10 @@ interface NavbarProps {
     onBackToModes?: () => void;
     jiraStatus?: { connected: boolean; email?: string; instance_url?: string } | null;
     onConnectJira?: () => void;
+    privacyMode?: boolean;
 }
 
-const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick, onSettings, onBackToModes, jiraStatus, onConnectJira }) => {
+const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick, onSettings, onBackToModes, jiraStatus, onConnectJira, privacyMode }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [activeTheme, setActiveTheme] = useState<string>('lavender');
     const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -136,18 +137,27 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick, onSettings
                                     className="flex items-center gap-2 px-2 py-1.5 rounded-lg
                                                hover:bg-white/10 transition-all"
                                 >
-                                    {user.avatar_url ? (
-                                        <img
-                                            src={user.avatar_url}
-                                            alt={user.username}
-                                            className="w-8 h-8 rounded-full border-2 border-purple-400"
-                                        />
-                                    ) : (
-                                        <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center">
-                                            <User className="w-5 h-5 text-white" />
+                                    {!privacyMode && (
+                                        user.avatar_url ? (
+                                            <img
+                                                src={user.avatar_url}
+                                                alt={user.username}
+                                                className="w-8 h-8 rounded-full border-2 border-purple-400"
+                                            />
+                                        ) : (
+                                            <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center">
+                                                <User className="w-5 h-5 text-white" />
+                                            </div>
+                                        )
+                                    )}
+                                    {privacyMode && (
+                                        <div className="w-8 h-8 bg-purple-500/30 rounded-full flex items-center justify-center border border-purple-400/30">
+                                            <User className="w-5 h-5 text-purple-300" />
                                         </div>
                                     )}
-                                    <span className="text-purple-200 text-sm">{user.username}</span>
+                                    {!privacyMode && (
+                                        <span className="text-purple-200 text-sm">{user.username}</span>
+                                    )}
                                     <ChevronDown className={`w-3.5 h-3.5 text-purple-300 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
                                 </button>
 

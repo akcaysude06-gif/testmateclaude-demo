@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(dir C:\\\\Users\\\\sude\\\\Desktop\\\\testmateclaude-demo /B)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(python3 *)",
+      "WebSearch",
+      "Bash(NODE_OPTIONS=\"\" npx tsc --noEmit)"
     ]
   }
 }

@@ -176,10 +176,6 @@ class ApiService {
         return (await apiClient.delete('/api/production/v2/jira/disconnect')).data;
     }
 
-    async getJiraSites(): Promise<any> {
-        return (await apiClient.get('/api/production/v2/jira/sites')).data;
-    }
-
     async updateJiraProjectKey(projectKey: string, spaceUrl?: string, cloudId?: string): Promise<any> {
         return (await apiClient.patch('/api/production/v2/jira/project-key', {
             project_key: projectKey,
@@ -193,26 +189,6 @@ class ApiService {
             '/api/production/v2/gaps/analyze',
             { repo_owner: repoOwner, repo_name: repoName },
             { timeout: 120000 },
-        )).data;
-    }
-
-    async generateTestsForGap(
-        gapType:            string,
-        taskKey:            string,
-        taskSummary:        string,
-        acceptanceCriteria: string,
-        existingCode:       string,
-    ): Promise<any> {
-        return (await apiClient.post(
-            '/api/production/v2/gaps/generate-tests',
-            {
-                gap_type:            gapType,
-                task_key:            taskKey,
-                task_summary:        taskSummary,
-                acceptance_criteria: acceptanceCriteria,
-                existing_code:       existingCode,
-            },
-            { timeout: 60000 },
         )).data;
     }
 

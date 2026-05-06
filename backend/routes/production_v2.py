@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from database import get_db, JiraIntegration, JiraTask, ImplementationGap, GapTypeEnum
 from services.auth_service import auth_service
 from services.github_service import github_service
-from services.jira_service import jira_service, jira_oauth_service
+from services.jira_service import jira_service
 from services.gap_detection_service import gap_detection_service
 from services.groq_service import groq_service
 
@@ -35,14 +35,6 @@ class JiraConnectRequest(BaseModel):
 class AnalyzeGapsRequest(BaseModel):
     repo_owner: str
     repo_name:  str
-
-
-class GenerateTestsRequest(BaseModel):
-    gap_type:            str
-    task_key:            str
-    task_summary:        str
-    acceptance_criteria: str
-    existing_code:       Optional[str] = ""
 
 
 class SimulateTestsRequest(BaseModel):
@@ -159,32 +151,6 @@ async def disconnect_jira(db: Session = Depends(get_db), authorization: str = He
     return {"disconnected": True}
 
 
-# ── /jira/sites ───────────────────────────────────────────────────────────────
-
-@router.get("/jira/sites")
-async def jira_sites(db: Session = Depends(get_db), authorization: str = Header(...)):
-    token = authorization.removeprefix("Bearer ").strip()
-    user = auth_service.get_current_user(db, token)
-
-    if not user.jira_access_token:
-        raise HTTPException(status_code=400, detail="Jira account not connected.")
-
-    try:
-        sites = await jira_oauth_service.get_accessible_sites(user.jira_access_token)
-    except HTTPException as exc:
-        if exc.status_code == 401 and user.jira_refresh_token:
-            token_data = await jira_oauth_service.refresh_access_token(user.jira_refresh_token)
-            user.jira_access_token = token_data["access_token"]
-            if token_data.get("refresh_token"):
-                user.jira_refresh_token = token_data["refresh_token"]
-            db.commit()
-            sites = await jira_oauth_service.get_accessible_sites(user.jira_access_token)
-        else:
-            raise
-
-    return {"sites": sites}
-
-
 # ── /jira/project-key ─────────────────────────────────────────────────────────
 
 @router.patch("/jira/project-key")
@@ -244,53 +210,15 @@ async def analyze_gaps(
     # 1. Fetch Jira issues
     logger.info("Fetching issues for project %s", integration.project_key)
     try:
-        if False:  # OAuth path disabled — using Basic Auth via api_token
-            cloud_id = integration.space_cloud_id or user.jira_cloud_id
-            access_token = user.jira_access_token
-
-            # Try with current token; if 401, refresh once and retry
-            first_attempt_failed = False
-            try:
-                raw_issues = await jira_oauth_service.get_project_issues_flat(
-                    access_token, cloud_id, integration.project_key
-                )
-            except HTTPException as exc:
-                if exc.status_code != 401:
-                    raise
-                first_attempt_failed = True
-
-            if first_attempt_failed:
-                if not user.jira_refresh_token:
-                    raise HTTPException(
-                        status_code=401,
-                        detail="Jira token expired. Please reconnect your Jira account.",
-                    )
-                try:
-                    token_data = await jira_oauth_service.refresh_access_token(user.jira_refresh_token)
-                    access_token = token_data["access_token"]
-                    user.jira_access_token = access_token
-                    if token_data.get("refresh_token"):
-                        user.jira_refresh_token = token_data["refresh_token"]
-                    integration.api_token = access_token
-                    db.commit()
-                except Exception:
-                    raise HTTPException(
-                        status_code=401,
-                        detail="Jira token expired and refresh failed. Please reconnect your Jira account.",
-                    )
-                raw_issues = await jira_oauth_service.get_project_issues_flat(
-                    access_token, cloud_id, integration.project_key
-                )
-        else:
-            raw_issues = await loop.run_in_executor(
-                None,
-                jira_service.get_project_issues,
-                integration.instance_url,
-                integration.email,
-                integration.api_token,
-                integration.project_key,
-                None,
-            )
+        raw_issues = await loop.run_in_executor(
+            None,
+            jira_service.get_project_issues,
+            integration.instance_url,
+            integration.email,
+            integration.api_token,
+            integration.project_key,
+            None,
+        )
     except HTTPException as exc:
         logger.error("Jira API error fetching issues: %s", exc.detail)
         raise
@@ -348,12 +276,94 @@ async def analyze_gaps(
         logger.error("Failed to fetch repo files for %s/%s: %s", request.repo_owner, request.repo_name, exc)
         raise HTTPException(status_code=500, detail=f"Failed to fetch repository files: {exc}")
 
-    # 4. Run gap detection
+    # 3b. Fetch content of test files for content-based matching (cap at 40 to limit API calls)
+    test_file_paths = [f for f in repo_files if gap_detection_service._is_test_file(f)]
+    test_file_contents: dict = {}
+
+    if test_file_paths:
+        semaphore = asyncio.Semaphore(8)  # max 8 concurrent GitHub requests
+
+        async def _fetch_test_content(fpath: str):
+            async with semaphore:
+                try:
+                    raw = await github_service.get_file_content(
+                        user.github_access_token, request.repo_owner, request.repo_name, fpath
+                    )
+                    content = raw if isinstance(raw, str) else raw.get("content", "")
+                    return fpath, content or ""
+                except Exception:
+                    return fpath, ""
+
+        fetch_results = await asyncio.gather(
+            *[_fetch_test_content(p) for p in test_file_paths[:40]]
+        )
+        test_file_contents = {k: v for k, v in fetch_results if v}
+        logger.info(
+            "Fetched content for %d/%d test files",
+            len(test_file_contents), len(test_file_paths[:40]),
+        )
+
+    # 4. Run gap detection (filename + content-based for test files)
     result = gap_detection_service.analyze_gaps(
-        jira_tasks = tasks_for_detection,
-        repo_files = repo_files,
-        repo_name  = request.repo_name,
+        jira_tasks    = tasks_for_detection,
+        repo_files    = repo_files,
+        repo_name     = request.repo_name,
+        file_contents = test_file_contents,
     )
+
+    # 4b. Groq verification — confirm "complete" tasks actually have tests covering the AC
+    if groq_service.check_availability() and test_file_contents:
+        downgraded = 0
+        loop = asyncio.get_running_loop()
+        for gap in result["gaps"]:
+            if gap["gap_type"] != "complete" or not gap["test_files"]:
+                continue
+            test_data = [
+                {"path": p, "content": test_file_contents.get(p, "")}
+                for p in gap["test_files"][:3]
+            ]
+            if not any(d["content"] for d in test_data):
+                continue  # no content to verify — leave classification as-is
+            try:
+                verification = await loop.run_in_executor(
+                    None,
+                    groq_service.verify_test_coverage,
+                    gap["summary"],
+                    gap["acceptance_criteria"],
+                    test_data,
+                )
+                if not verification["covered"]:
+                    gap["gap_type"] = "untested"
+                    downgraded += 1
+                    logger.info(
+                        "Task %s downgraded complete→untested: %s",
+                        gap["task_key"], verification["reason"],
+                    )
+            except Exception as exc:
+                logger.warning("verify_test_coverage failed for %s: %s", gap["task_key"], exc)
+
+        # Recalculate stats if any gaps were downgraded
+        if downgraded:
+            gaps = result["gaps"]
+            total = len(gaps)
+
+            def _count(t: str) -> int:
+                return sum(1 for g in gaps if g["gap_type"] == t)
+
+            def _pct(n: int) -> float:
+                return round(n / total * 100, 1) if total else 0.0
+
+            ns  = _count("not_started")
+            ut  = _count("untested")
+            cmp = _count("complete")
+            nct = _count("non_code_task")
+            result["stats"] = {
+                "total":           total,
+                "not_started":     ns,  "not_started_pct":   _pct(ns),
+                "untested":        ut,  "untested_pct":      _pct(ut),
+                "complete":        cmp, "complete_pct":      _pct(cmp),
+                "non_code_task":   nct, "non_code_task_pct": _pct(nct),
+            }
 
     # 5. Persist ImplementationGap rows
     for gap_item in result["gaps"]:
@@ -384,42 +394,6 @@ async def analyze_gaps(
             ))
 
     db.commit()
-    return result
-
-
-# ── /gaps/generate-tests ──────────────────────────────────────────────────────
-
-@router.post("/gaps/generate-tests")
-async def generate_tests_for_gap(
-    request: GenerateTestsRequest,
-    db: Session = Depends(get_db),
-    authorization: str = Header(...),
-):
-    token = authorization.removeprefix("Bearer ").strip()
-    auth_service.get_current_user(db, token)
-
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(
-        None,
-        groq_service.generate_tests_from_gaps,
-        request.task_summary,
-        request.acceptance_criteria,
-        request.existing_code or "",
-        request.gap_type,
-    )
-
-    # Persist generated tests
-    task_row = db.query(JiraTask).filter(
-        JiraTask.task_key == request.task_key
-    ).first()
-    if task_row:
-        gap_row = db.query(ImplementationGap).filter(
-            ImplementationGap.jira_task_id == task_row.id
-        ).first()
-        if gap_row:
-            gap_row.generated_tests = result.get("code", "")
-            db.commit()
-
     return result
 
 

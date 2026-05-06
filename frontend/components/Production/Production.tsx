@@ -14,9 +14,10 @@ import ConnectedProjectsPanel, {
 import ProjectDashboard from './ProjectDashboard';
 
 interface ProductionProps {
-    onBack:         () => void;
-    jiraConnected?: boolean;
-    onConnectJira?: () => void;
+    onBack:           () => void;
+    jiraConnected?:   boolean;
+    onConnectJira?:   () => void;
+    onJiraConnected?: () => void;
 }
 
 export interface Repository {
@@ -76,7 +77,7 @@ function loadAndClearWizardState() {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, onConnectJira }) => {
+const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, onConnectJira, onJiraConnected }) => {
     const persisted = loadPersistedState();
 
     // Wizard state
@@ -243,6 +244,7 @@ const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, o
     };
 
     const handleJiraConnectedInWizard = (pk: string) => {
+        onJiraConnected?.();
         if (!repo) {
             // Came from "Connect Project" with no repo — Jira just got connected, now pick repo
             setStep('repo');
@@ -285,12 +287,8 @@ const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, o
         setCodeType(null);
         setScope(null);
         setSelectedFiles([]);
-        if (!jiraConnected) {
-            setStep('jira');
-        } else {
-            setStep('repo');
-            loadRepos();
-        }
+        setStep('repo');
+        loadRepos();
         setShowWizard(true);
     };
 

@@ -1,25 +1,40 @@
 import React from 'react';
 
 const STEPS = [
-    { n: '01', title: 'Describe Your Test', body: 'Write what you want to test in plain English. Be as detailed as possible.' },
-    { n: '02', title: 'Upload Scenarios (Optional)', body: 'Drag & drop or import a test case file for more complex scenarios.' },
-    { n: '03', title: 'Generate Code', body: 'The AI generates professional Selenium Python code from your description.' },
-    { n: '04', title: 'Review & Use', body: 'Read the generated code and plain-English explanation, then use it in your project.' },
+    {
+        n: '01',
+        title: 'Describe Your Scenario',
+        body: 'Write what you want to test in plain English. Focus on the user flow, specific URLs, and what a successful outcome looks like.',
+    },
+    {
+        n: '02',
+        title: 'Generate the Code',
+        body: 'Llama 3 reads your description and produces real, runnable Selenium Python code — no manual coding required.',
+    },
+    {
+        n: '03',
+        title: 'Read the Breakdown',
+        body: 'The result comes with a high-level summary and step breakdown before the code, so you understand what each section does.',
+    },
+    {
+        n: '04',
+        title: 'Test Your Understanding',
+        body: 'Answer a short quiz about the generated code to reinforce the concepts you just saw in action.',
+    },
 ];
 
 const TIPS = [
-    'Include specific URLs and element selectors',
-    'Mention expected outcomes clearly',
-    'Describe the user flow step by step',
-    'Use action verbs: click, enter, verify',
+    'Mention the URL you want to test',
+    'Describe expected outcomes, not just actions',
+    'Use action verbs: click, enter, verify, navigate',
+    'Keep it focused — one user flow per test',
 ];
 
 const InfoPanel: React.FC = () => (
     <div className="bg-white/5 rounded-xl border border-white/10 p-6 h-full flex flex-col gap-8">
 
-        {/* How It Works */}
         <section>
-            <h2 className="text-base font-semibold text-white mb-5 tracking-tight">How It Works</h2>
+            <h2 className="text-base font-semibold text-white mb-5 tracking-tight">How This Step Works</h2>
             <div className="space-y-5">
                 {STEPS.map(s => (
                     <div key={s.n} className="flex items-start gap-4">
@@ -38,7 +53,6 @@ const InfoPanel: React.FC = () => (
 
         <div className="border-t border-white/8" />
 
-        {/* Tips */}
         <section>
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
                 Tips for Better Results
@@ -55,7 +69,6 @@ const InfoPanel: React.FC = () => (
 
         <div className="border-t border-white/8" />
 
-        {/* Example */}
         <section>
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
                 Example Description

@@ -278,6 +278,7 @@ export default function Home() {
                     onBack={handleBackToModes}
                     jiraConnected={jiraStatus?.connected === true}
                     onConnectJira={() => setShowJiraSetup(true)}
+                    onJiraConnected={refreshJiraStatus}
                 />
             )}
         </Layout>

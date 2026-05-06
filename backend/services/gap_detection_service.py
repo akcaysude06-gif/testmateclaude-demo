@@ -25,11 +25,6 @@ STOP_WORDS = {
     # NOT stopped — they appear in real file names (user_service.py etc.)
 }
 
-DONE_STATUSES = {
-    "done", "closed", "resolved", "fixed", "verified", "complete",
-    "completed", "released", "won't fix", "duplicate",
-}
-
 # Task word → file-name abbreviations (forward direction)
 ABBREVIATIONS: Dict[str, List[str]] = {
     "authentication": ["auth"],
@@ -289,12 +284,31 @@ class GapDetectionService:
 
         return keywords
 
+    def _content_matches_keywords(
+        self, content: str, keywords: List[str], specific_kws: List[str]
+    ) -> bool:
+        """Return True if file content contains enough task keywords (word-boundary aware)."""
+        content_lower = content.lower()
+        exact_hits = sum(
+            1 for kw in keywords
+            if re.search(r'\b' + re.escape(kw) + r'\b', content_lower)
+        )
+        specific_hits = sum(
+            1 for kw in specific_kws
+            if re.search(r'\b' + re.escape(kw) + r'\b', content_lower)
+        )
+        return exact_hits >= 2 or specific_hits >= 1
+
     def _find_related_files(
-        self, keywords: List[str], all_files: List[str]
+        self,
+        keywords: List[str],
+        all_files: List[str],
+        file_contents: Dict[str, str] = None,
     ) -> Dict[str, List[str]]:
         specific_kws   = [kw for kw in keywords if len(kw) >= 6]
         source_matches: List[str] = []
         test_matches:   List[str] = []
+        file_contents  = file_contents or {}
 
         for fpath in all_files:
             path_lower = fpath.lower()
@@ -305,13 +319,22 @@ class GapDetectionService:
             specific_hits = sum(1 for kw in specific_kws if kw in path_lower)
             substr_hits   = sum(1 for kw in keywords  if kw in path_lower)
 
-            qualifies = (
+            path_qualifies = (
                 exact_hits    >= 1 or
                 specific_hits >= 1 or
                 substr_hits   >= 2
             )
 
-            if qualifies:
+            # Content-based matching for test files — discovers tests with non-standard names
+            content_qualifies = False
+            if not path_qualifies and self._is_test_file(fpath):
+                content = file_contents.get(fpath, "")
+                if content:
+                    content_qualifies = self._content_matches_keywords(
+                        content, keywords, specific_kws
+                    )
+
+            if path_qualifies or content_qualifies:
                 if self._is_test_file(fpath):
                     test_matches.append(fpath)
                 else:
@@ -319,16 +342,12 @@ class GapDetectionService:
 
         return {"source": source_matches, "tests": test_matches}
 
-    def _is_done_in_jira(self, status: str) -> bool:
-        return status.lower().strip() in DONE_STATUSES or any(
-            w in status.lower() for w in DONE_STATUSES
-        )
-
     def analyze_gaps(
         self,
         jira_tasks: List[Dict[str, Any]],
         repo_files: List[str],
         repo_name: str,
+        file_contents: Dict[str, str] = None,
     ) -> Dict[str, Any]:
         gaps: List[Dict[str, Any]] = []
 
@@ -369,8 +388,8 @@ class GapDetectionService:
                 })
                 continue
 
-            # 3. File matching
-            related = self._find_related_files(keywords, repo_files)
+            # 3. File matching (path-based + optional content-based for test files)
+            related = self._find_related_files(keywords, repo_files, file_contents)
             source  = related["source"]
             tests   = related["tests"]
 

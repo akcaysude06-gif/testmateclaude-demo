@@ -39,7 +39,7 @@ class GitHubService:
 				if response.status_code != 200:
 					raise HTTPException(
 						status_code=status.HTTP_400_BAD_REQUEST,
-						detail="Failed to fetch repositories from GitHub"
+						detail=f"GitHub API error {response.status_code}: {response.json().get('message', response.text)}"
 					)
 
 				repos = response.json()
