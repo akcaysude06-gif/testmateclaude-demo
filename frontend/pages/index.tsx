@@ -309,6 +309,7 @@ Two mode cards are shown: "Guided Learning" (click to go to Level Selection) and
             aiChatPageKey={getPageKey()}
             aiChatInjectedMessage={aiChatInjectedMessage}
             onAIChatInjectedHandled={() => setAiChatInjectedMessage(null)}
+            currentMode={currentMode}
         >
             {!currentMode && (
                 <ModeSelection onSelectMode={handleSelectMode} />
