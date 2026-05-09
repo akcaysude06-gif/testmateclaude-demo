@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import requests
 import httpx
@@ -127,6 +128,68 @@ class JiraService:
             start_at += page_size
 
         return issues
+
+    async def get_project_issues_async(
+        self,
+        instance_url: str,
+        email: str,
+        api_token: str,
+        project_key: str,
+        statuses: Optional[List[str]] = None,
+    ) -> List[Dict]:
+        """Async version of get_project_issues — fetches all pages concurrently after the first."""
+        if statuses:
+            status_jql = ", ".join(f'"{s}"' for s in statuses)
+            jql = f'project = "{project_key}" AND status in ({status_jql}) ORDER BY updated DESC'
+        else:
+            jql = f'project = "{project_key}" ORDER BY updated DESC'
+
+        base      = self._normalize_url(instance_url)
+        url       = f"{base}/rest/api/3/search/jql"
+        headers   = self._make_headers(email, api_token)
+        page_size = 50
+
+        async def _fetch_page(client: httpx.AsyncClient, start_at: int) -> dict:
+            resp = await client.get(
+                url,
+                headers=headers,
+                params={
+                    "jql":        jql,
+                    "startAt":    start_at,
+                    "maxResults": page_size,
+                    "fields":     "summary,status,description,issuetype,priority",
+                },
+                timeout=15,
+            )
+            if not resp.is_success:
+                raise HTTPException(status_code=400, detail=self._jira_error_message_httpx(resp))
+            return resp.json()
+
+        async with httpx.AsyncClient() as client:
+            first = await _fetch_page(client, 0)
+            total   = first.get("total", 0)
+            issues  = list(first.get("issues", []))
+
+            if total > page_size:
+                start_ats = range(page_size, total, page_size)
+                pages = await asyncio.gather(*[_fetch_page(client, s) for s in start_ats])
+                for page in pages:
+                    issues.extend(page.get("issues", []))
+
+        return issues
+
+    def _jira_error_message_httpx(self, resp: httpx.Response) -> str:
+        try:
+            body = resp.json()
+            msgs = body.get("errorMessages") or []
+            errs = body.get("errors") or {}
+            if msgs:
+                return "; ".join(msgs)
+            if errs:
+                return "; ".join(f"{k}: {v}" for k, v in errs.items())
+        except Exception:
+            pass
+        return f"HTTP {resp.status_code} from Jira"
 
     def get_issue_details(
         self, instance_url: str, email: str, api_token: str, issue_key: str

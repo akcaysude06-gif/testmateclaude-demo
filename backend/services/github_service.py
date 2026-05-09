@@ -108,49 +108,40 @@ class GitHubService:
 				detail=f"Error fetching repository structure: {str(e)}"
 			)
 
-	async def get_file_content(self, access_token: str, owner: str, repo: str, path: str) -> str:
+	async def _fetch_file_content(self, client: httpx.AsyncClient, access_token: str, owner: str, repo: str, path: str) -> str:
+		"""Fetch file content using a provided httpx client (enables connection reuse)."""
+		import base64
+		url = f"{self.github_api_base}/repos/{owner}/{repo}/contents/{path}"
+		response = await client.get(
+			url,
+			headers={
+				"Authorization": f"Bearer {access_token}",
+				"Accept": "application/vnd.github+json",
+				"X-GitHub-Api-Version": "2022-11-28",
+			},
+		)
+		if response.status_code != 200:
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail=f"Failed to fetch file content: {response.text}",
+			)
+		data = response.json()
+		return base64.b64decode(data["content"]).decode("utf-8")
+
+	async def get_file_content(self, access_token: str, owner: str, repo: str, path: str, client: httpx.AsyncClient = None) -> str:
 		"""
-		Get the content of a specific file
-
-		Args:
-			access_token: GitHub access token
-			owner: Repository owner
-			repo: Repository name
-			path: File path
-
-		Returns:
-			File content as string
+		Get the content of a specific file.
+		Pass an existing `client` to reuse the connection pool across multiple calls.
 		"""
 		try:
-			import base64
-
-			async with httpx.AsyncClient() as client:
-				url = f"{self.github_api_base}/repos/{owner}/{repo}/contents/{path}"
-				response = await client.get(
-					url,
-					headers={
-						"Authorization": f"Bearer {access_token}",
-						"Accept": "application/vnd.github+json",
-						"X-GitHub-Api-Version": "2022-11-28"
-					}
-				)
-
-				if response.status_code != 200:
-					raise HTTPException(
-						status_code=status.HTTP_400_BAD_REQUEST,
-						detail=f"Failed to fetch file content: {response.text}"
-					)
-
-				data = response.json()
-
-				# Decode base64 content
-				content = base64.b64decode(data["content"]).decode('utf-8')
-				return content
-
+			if client is not None:
+				return await self._fetch_file_content(client, access_token, owner, repo, path)
+			async with httpx.AsyncClient() as _client:
+				return await self._fetch_file_content(_client, access_token, owner, repo, path)
 		except httpx.HTTPError as e:
 			raise HTTPException(
 				status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-				detail=f"Error fetching file content: {str(e)}"
+				detail=f"Error fetching file content: {str(e)}",
 			)
 
 	async def get_flat_file_list(self, access_token: str, owner: str, repo: str) -> List[str]:

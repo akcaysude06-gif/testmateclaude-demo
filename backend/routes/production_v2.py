@@ -205,19 +205,14 @@ async def analyze_gaps(
         )
     logger.info("gaps/analyze: project=%s instance=%s", integration.project_key, integration.instance_url)
 
-    loop = asyncio.get_running_loop()
-
-    # 1. Fetch Jira issues
+    # 1. Fetch Jira issues (all pages concurrently)
     logger.info("Fetching issues for project %s", integration.project_key)
     try:
-        raw_issues = await loop.run_in_executor(
-            None,
-            jira_service.get_project_issues,
+        raw_issues = await jira_service.get_project_issues_async(
             integration.instance_url,
             integration.email,
             integration.api_token,
             integration.project_key,
-            None,
         )
     except HTTPException as exc:
         logger.error("Jira API error fetching issues: %s", exc.detail)
@@ -227,6 +222,14 @@ async def analyze_gaps(
         raise HTTPException(status_code=500, detail=f"Failed to fetch Jira issues: {exc}")
 
     # 2. Process issues — extract AC, upsert JiraTask rows
+    # Preload all existing tasks in one query to avoid N+1
+    existing_tasks: dict = {
+        t.task_key: t
+        for t in db.query(JiraTask).filter(
+            JiraTask.jira_integration_id == integration.id
+        ).all()
+    }
+
     tasks_for_detection: List[dict] = []
     for issue in raw_issues:
         issue_key = issue["key"]
@@ -235,11 +238,7 @@ async def analyze_gaps(
         status    = fields.get("status", {}).get("name", "")
         ac_text   = jira_service._extract_acceptance_criteria(fields.get("description"))
 
-        db_task = db.query(JiraTask).filter(
-            JiraTask.jira_integration_id == integration.id,
-            JiraTask.task_key == issue_key,
-        ).first()
-
+        db_task = existing_tasks.get(issue_key)
         if db_task:
             db_task.summary             = summary
             db_task.status              = status
@@ -283,20 +282,22 @@ async def analyze_gaps(
     if test_file_paths:
         semaphore = asyncio.Semaphore(8)  # max 8 concurrent GitHub requests
 
-        async def _fetch_test_content(fpath: str):
+        async def _fetch_test_content(client: "httpx.AsyncClient", fpath: str):
             async with semaphore:
                 try:
-                    raw = await github_service.get_file_content(
-                        user.github_access_token, request.repo_owner, request.repo_name, fpath
+                    content = await github_service.get_file_content(
+                        user.github_access_token, request.repo_owner, request.repo_name, fpath,
+                        client=client,
                     )
-                    content = raw if isinstance(raw, str) else raw.get("content", "")
                     return fpath, content or ""
                 except Exception:
                     return fpath, ""
 
-        fetch_results = await asyncio.gather(
-            *[_fetch_test_content(p) for p in test_file_paths[:40]]
-        )
+        import httpx as _httpx
+        async with _httpx.AsyncClient() as _shared_client:
+            fetch_results = await asyncio.gather(
+                *[_fetch_test_content(_shared_client, p) for p in test_file_paths[:40]]
+            )
         test_file_contents = {k: v for k, v in fetch_results if v}
         logger.info(
             "Fetched content for %d/%d test files",
@@ -313,34 +314,42 @@ async def analyze_gaps(
 
     # 4b. Groq verification — confirm "complete" tasks actually have tests covering the AC
     if groq_service.check_availability() and test_file_contents:
-        downgraded = 0
         loop = asyncio.get_running_loop()
-        for gap in result["gaps"]:
-            if gap["gap_type"] != "complete" or not gap["test_files"]:
-                continue
+        gaps_to_verify = [
+            gap for gap in result["gaps"]
+            if gap["gap_type"] == "complete"
+            and gap["test_files"]
+            and any(test_file_contents.get(p, "") for p in gap["test_files"][:3])
+        ]
+
+        async def _verify_gap(gap: dict):
             test_data = [
                 {"path": p, "content": test_file_contents.get(p, "")}
                 for p in gap["test_files"][:3]
             ]
-            if not any(d["content"] for d in test_data):
-                continue  # no content to verify — leave classification as-is
             try:
-                verification = await loop.run_in_executor(
+                return gap, await loop.run_in_executor(
                     None,
                     groq_service.verify_test_coverage,
                     gap["summary"],
                     gap["acceptance_criteria"],
                     test_data,
                 )
-                if not verification["covered"]:
-                    gap["gap_type"] = "untested"
-                    downgraded += 1
-                    logger.info(
-                        "Task %s downgraded complete→untested: %s",
-                        gap["task_key"], verification["reason"],
-                    )
             except Exception as exc:
                 logger.warning("verify_test_coverage failed for %s: %s", gap["task_key"], exc)
+                return gap, None
+
+        verification_results = await asyncio.gather(*[_verify_gap(g) for g in gaps_to_verify])
+
+        downgraded = 0
+        for gap, verification in verification_results:
+            if verification and not verification["covered"]:
+                gap["gap_type"] = "untested"
+                downgraded += 1
+                logger.info(
+                    "Task %s downgraded complete→untested: %s",
+                    gap["task_key"], verification["reason"],
+                )
 
         # Recalculate stats if any gaps were downgraded
         if downgraded:
@@ -366,11 +375,17 @@ async def analyze_gaps(
             }
 
     # 5. Persist ImplementationGap rows
+    task_key_to_row = {t["task_key"]: t for t in tasks_for_detection}
+    task_db_ids     = [t["_db_id"] for t in tasks_for_detection if t.get("_db_id")]
+    existing_gaps   = {
+        g.jira_task_id: g
+        for g in db.query(ImplementationGap).filter(
+            ImplementationGap.jira_task_id.in_(task_db_ids)
+        ).all()
+    }
+
     for gap_item in result["gaps"]:
-        task_row = next(
-            (t for t in tasks_for_detection if t["task_key"] == gap_item["task_key"]),
-            None,
-        )
+        task_row = task_key_to_row.get(gap_item["task_key"])
         if not task_row or not task_row.get("_db_id"):
             continue
 
@@ -380,11 +395,9 @@ async def analyze_gaps(
             "tests":  gap_item["test_files"],
         })
 
-        existing_gap = db.query(ImplementationGap).filter(
-            ImplementationGap.jira_task_id == task_row["_db_id"]
-        ).first()
+        existing_gap = existing_gaps.get(task_row["_db_id"])
         if existing_gap:
-            existing_gap.gap_type      = gap_enum
+            existing_gap.gap_type       = gap_enum
             existing_gap.affected_files = affected
         else:
             db.add(ImplementationGap(

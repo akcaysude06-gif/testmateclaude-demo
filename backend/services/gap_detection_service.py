@@ -289,15 +289,16 @@ class GapDetectionService:
     ) -> bool:
         """Return True if file content contains enough task keywords (word-boundary aware)."""
         content_lower = content.lower()
-        exact_hits = sum(
-            1 for kw in keywords
-            if re.search(r'\b' + re.escape(kw) + r'\b', content_lower)
-        )
-        specific_hits = sum(
-            1 for kw in specific_kws
-            if re.search(r'\b' + re.escape(kw) + r'\b', content_lower)
-        )
-        return exact_hits >= 2 or specific_hits >= 1
+        if keywords:
+            pattern = re.compile(r'\b(?:' + '|'.join(re.escape(kw) for kw in keywords) + r')\b')
+            exact_hits = len(set(pattern.findall(content_lower)))
+            if exact_hits >= 2:
+                return True
+        if specific_kws:
+            sp_pattern = re.compile(r'\b(?:' + '|'.join(re.escape(kw) for kw in specific_kws) + r')\b')
+            if sp_pattern.search(content_lower):
+                return True
+        return False
 
     def _find_related_files(
         self,
