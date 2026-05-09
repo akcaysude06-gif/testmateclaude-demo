@@ -11,6 +11,8 @@ interface LayoutProps {
     onLogout:                () => void;
     user?:                   any;
     onOpenBeginnerMode?:     () => void;
+    onOpenProductionMode?:   () => void;
+    currentMode?:            'guided' | 'production' | null;
     fullWidth?:              boolean;
     padding?:                string;
     onLogoClick?:            () => void;
@@ -28,7 +30,7 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({
-    children, onLogout, user, onOpenBeginnerMode,
+    children, onLogout, user, onOpenBeginnerMode, onOpenProductionMode, currentMode = null,
     fullWidth, padding, onLogoClick, onSettings, jiraStatus, onConnectJira,
     showAIChat = false,
     aiChatOpen = false,
@@ -55,6 +57,11 @@ const Layout: React.FC<LayoutProps> = ({
     const handleBeginnerMode = () => {
         window.location.hash = 'guided';
         onOpenBeginnerMode?.();
+    };
+
+    const handleProductionMode = () => {
+        window.location.hash = 'production';
+        onOpenProductionMode?.();
     };
 
     const fullWidthPadding = padding ?? (
@@ -106,7 +113,12 @@ const Layout: React.FC<LayoutProps> = ({
                 </div>
             )}
 
-            <SettingsSidebar onOpenBeginnerMode={handleBeginnerMode} onSideChange={setSidebarSide} />
+            <SettingsSidebar
+                onOpenBeginnerMode={handleBeginnerMode}
+                onOpenProductionMode={handleProductionMode}
+                currentMode={currentMode}
+                onSideChange={setSidebarSide}
+            />
         </div>
     );
 };

@@ -216,6 +216,30 @@ class ApiService {
         )).data;
     }
 
+    async generateTests(
+        gapType:            string,
+        taskKey:            string,
+        taskSummary:        string,
+        acceptanceCriteria: string,
+        sourceFiles:        string[],
+        repoOwner:          string,
+        repoName:           string,
+    ): Promise<{ test_code: string; summary: string; main_points: string[]; gap_type: string; model: string }> {
+        return (await apiClient.post(
+            '/api/production/v2/gaps/generate-tests',
+            {
+                gap_type:            gapType,
+                task_key:            taskKey,
+                task_summary:        taskSummary,
+                acceptance_criteria: acceptanceCriteria,
+                source_files:        sourceFiles,
+                repo_owner:          repoOwner,
+                repo_name:           repoName,
+            },
+            { timeout: 90000 },
+        )).data;
+    }
+
     async updateGapType(taskKey: string, gapType: string): Promise<{ task_key: string; gap_type: string }> {
         return (await apiClient.put(
             `/api/production/v2/gaps/${taskKey}/type`,

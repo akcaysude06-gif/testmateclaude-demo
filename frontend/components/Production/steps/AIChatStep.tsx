@@ -3,6 +3,7 @@ import {
     Send, RotateCcw, Code2, FlaskConical, FolderTree, FileCode,
     TestTube, Wand2, Sparkles, Shield, Bug, GitMerge, ChevronRight,
     Bot, User, Square, Pencil, Check, X, Plus, Trash2, MessageSquare,
+    History, ChevronDown,
 } from 'lucide-react';
 import { SessionConfig } from '../Production';
 import { authUtils } from '../../../utils/auth';
@@ -35,9 +36,10 @@ interface QuickAction {
 }
 
 interface AIChatStepProps {
-    config:   SessionConfig;
-    onReset:  () => void;
-    compact?: boolean;
+    config:        SessionConfig;
+    onReset:       () => void;
+    compact?:      boolean;
+    productionMode?: boolean;
 }
 
 /* ── Quick actions ───────────────────────────────────────────────────────── */
@@ -87,6 +89,30 @@ const TEST_CODE_ACTIONS: QuickAction[] = [
         prompt: 'Scan the test suite for patterns that cause flaky, intermittently failing tests. Look for: hardcoded time.sleep() or fixed waits, race conditions between async operations, tests that depend on network timing, animations or transitions not waited for, missing explicit waits before assertions, tests sensitive to system clock or timezone, and non-deterministic ordering in collections. For each flaky pattern found, show the exact code, explain when and why it fails, and provide a reliable fix.',
         icon:   <GitMerge className="w-4 h-4" />,
         color:  'from-pink-500/20 to-rose-500/20 border-pink-500/30 hover:border-pink-400',
+    },
+];
+
+const PRODUCTION_ACTIONS: QuickAction[] = [
+    {
+        id:     'coverage-gaps',
+        label:  'Summarise Coverage Gaps',
+        prompt: 'Based on the repository, identify the most critical areas lacking test coverage. Group gaps by severity — high (untested business logic, auth flows, data mutations), medium (missing edge cases, error paths), and low (trivial getters, pure UI). For each high-severity gap, explain the risk and suggest a concrete test to fill it.',
+        icon:   <Shield className="w-4 h-4" />,
+        color:  'from-red-500/20 to-orange-500/20 border-red-500/30 hover:border-red-400',
+    },
+    {
+        id:     'fill-gaps',
+        label:  'Generate Tests for Gaps',
+        prompt: 'Write complete, runnable tests for the most impactful coverage gaps in this repository. Focus on untested or under-tested functions that handle business logic, data validation, or external integrations. For each test, include proper setup, meaningful assertions, and mocking of external dependencies. Explain which gap each test addresses.',
+        icon:   <TestTube className="w-4 h-4" />,
+        color:  'from-green-500/20 to-emerald-500/20 border-green-500/30 hover:border-green-400',
+    },
+    {
+        id:     'prioritise',
+        label:  'Prioritise What to Test Next',
+        prompt: 'Analyse the repository and suggest a prioritised backlog of what to test next. Consider: code churn (recently changed files), complexity, criticality to core flows, and existing gap severity. Output a ranked list with a one-sentence rationale for each item — like a sprint planning list for test coverage.',
+        icon:   <Sparkles className="w-4 h-4" />,
+        color:  'from-purple-500/20 to-pink-500/20 border-purple-500/30 hover:border-purple-400',
     },
 ];
 
@@ -212,24 +238,27 @@ const renderContent = (content: string) => {
 
 /* ── Component ───────────────────────────────────────────────────────────── */
 
-const AIChatStep: React.FC<AIChatStepProps> = ({ config, onReset, compact = false }) => {
+const AIChatStep: React.FC<AIChatStepProps> = ({ config, onReset, compact = false, productionMode = false }) => {
     // History (persisted to localStorage)
     const [sessions,        setSessions]        = useState<ChatSession[]>(() => loadSessions());
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
     // Active chat
-    const [messages,  setMessages]  = useState<Message[]>([]);
-    const [input,     setInput]     = useState('');
-    const [streaming, setStreaming] = useState(false);
-    const [editingId, setEditingId] = useState<string | null>(null);
-    const [editDraft, setEditDraft] = useState('');
+    const [messages,       setMessages]       = useState<Message[]>([]);
+    const [input,          setInput]          = useState('');
+    const [streaming,      setStreaming]      = useState(false);
+    const [editingId,      setEditingId]      = useState<string | null>(null);
+    const [editDraft,      setEditDraft]      = useState('');
+    const [historyOpen,    setHistoryOpen]    = useState(false);
 
     const bottomRef   = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const editRef     = useRef<HTMLTextAreaElement>(null);
     const abortRef    = useRef<AbortController | null>(null);
 
-    const actions = config.codeType === 'application-code' ? APP_CODE_ACTIONS : TEST_CODE_ACTIONS;
+    const actions = productionMode
+        ? PRODUCTION_ACTIONS
+        : config.codeType === 'application-code' ? APP_CODE_ACTIONS : TEST_CODE_ACTIONS;
 
     // Persist whenever sessions change
     useEffect(() => { saveSessions(sessions); }, [sessions]);
@@ -387,7 +416,7 @@ const AIChatStep: React.FC<AIChatStepProps> = ({ config, onReset, compact = fals
     return (
         <div className="flex gap-3" style={{ height: compact ? '100%' : 'calc(100vh - 155px)', minHeight: compact ? 0 : 500 }}>
 
-            {/* ── SIDEBAR ─────────────────────────────────────────────── */}
+            {/* ── SIDEBAR (full mode) ──────────────────────────────────── */}
             {!compact && <div className="w-56 flex-shrink-0 flex flex-col bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
 
                 {/* Header */}
@@ -447,48 +476,109 @@ const AIChatStep: React.FC<AIChatStepProps> = ({ config, onReset, compact = fals
             {/* ── MAIN CHAT ────────────────────────────────────────────── */}
             <div className="flex-1 flex flex-col min-w-0">
 
-                {/* Session info bar */}
-                <div className="flex items-center justify-between mb-3 flex-shrink-0">
-                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
-                        <div className="flex items-center space-x-1.5 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5">
-                            <FolderTree className="w-3.5 h-3.5 text-slate-400" />
-                            <span className="text-xs text-slate-300 font-medium">{config.repo.name}</span>
-                        </div>
-                        <ChevronRight className="w-3 h-3 text-slate-600" />
-                        <div className={`flex items-center space-x-1.5 rounded-lg px-3 py-1.5 border text-xs font-medium ${
-                            config.codeType === 'application-code'
-                                ? 'bg-blue-500/10 border-blue-500/30 text-blue-300'
-                                : 'bg-purple-500/10 border-purple-500/30 text-purple-300'
-                        }`}>
-                            {config.codeType === 'application-code'
-                                ? <Code2       className="w-3.5 h-3.5" />
-                                : <FlaskConical className="w-3.5 h-3.5" />}
-                            <span>{config.codeType === 'application-code' ? 'App Code' : 'Test Code'}</span>
-                        </div>
-                        <ChevronRight className="w-3 h-3 text-slate-600" />
-                        <div className="flex items-center space-x-1.5 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5">
-                            <FileCode className="w-3.5 h-3.5 text-slate-400" />
-                            <span className="text-xs text-slate-300">
-                                {config.scope === 'whole-project'
-                                    ? 'Whole project'
-                                    : `${config.selectedFiles.length} file${config.selectedFiles.length !== 1 ? 's' : ''}`}
-                            </span>
-                        </div>
-                        {streaming && (
-                            <div className="flex items-center space-x-1.5 bg-purple-500/10 border border-purple-500/30 rounded-lg px-3 py-1.5">
-                                <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-                                <span className="text-xs text-purple-300">Generating…</span>
+                {/* Compact history panel */}
+                {compact && (
+                    <div className="flex-shrink-0 mb-2">
+                        <button
+                            onClick={() => setHistoryOpen(o => !o)}
+                            className="flex items-center space-x-1.5 text-xs text-slate-400 hover:text-white transition-colors px-2 py-1 rounded-lg hover:bg-white/5"
+                        >
+                            <History className="w-3.5 h-3.5" />
+                            <span>History</span>
+                            <ChevronDown className={`w-3 h-3 transition-transform ${historyOpen ? 'rotate-180' : ''}`} />
+                            {sessions.length > 0 && (
+                                <span className="ml-1 bg-purple-500/30 text-purple-300 text-xs rounded-full px-1.5 py-0.5 leading-none">
+                                    {sessions.length}
+                                </span>
+                            )}
+                        </button>
+                        {historyOpen && (
+                            <div className="mt-1 bg-slate-900 border border-white/10 rounded-xl overflow-hidden max-h-52 overflow-y-auto shadow-xl">
+                                <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+                                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Sessions</span>
+                                    <button
+                                        onClick={() => { createNewSession(); setHistoryOpen(false); }}
+                                        title="New chat"
+                                        className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-all"
+                                    >
+                                        <Plus className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                                {sessions.length === 0 ? (
+                                    <div className="px-3 py-4 text-xs text-slate-600 text-center">No history yet</div>
+                                ) : sessions.map(session => {
+                                    const isActive = session.id === activeSessionId;
+                                    return (
+                                        <div
+                                            key={session.id}
+                                            onClick={() => { loadSession(session); setHistoryOpen(false); }}
+                                            className={`group relative flex items-start justify-between px-3 py-2.5 cursor-pointer transition-all border-b border-white/5 last:border-0 ${
+                                                isActive ? 'bg-purple-500/20' : 'hover:bg-white/5'
+                                            }`}
+                                        >
+                                            <div className="min-w-0 flex-1 pr-6">
+                                                <p className="text-xs text-purple-400 font-medium truncate">{session.repoName}</p>
+                                                <p className={`text-xs truncate leading-snug ${isActive ? 'text-white' : 'text-slate-400'}`}>{session.title}</p>
+                                                <p className="text-xs text-slate-600 mt-0.5">{formatDate(session.createdAt)}</p>
+                                            </div>
+                                            <button
+                                                onClick={(e) => deleteSession(session.id, e)}
+                                                className="absolute top-2 right-2 p-1 rounded-md text-red-400 hover:text-red-300 hover:bg-red-400/15 transition-all opacity-0 group-hover:opacity-100"
+                                            >
+                                                <Trash2 className="w-3 h-3" />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
-                    <button
-                        onClick={onReset}
-                        className="flex items-center space-x-1.5 text-slate-500 hover:text-white text-xs transition-colors"
-                    >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span>New session</span>
-                    </button>
-                </div>
+                )}
+
+                {/* Session info bar — hidden in compact/production mode */}
+                {!compact && (
+                    <div className="flex items-center justify-between mb-3 flex-shrink-0">
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                            <div className="flex items-center space-x-1.5 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5">
+                                <FolderTree className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-xs text-slate-300 font-medium">{config.repo.name}</span>
+                            </div>
+                            <ChevronRight className="w-3 h-3 text-slate-600" />
+                            <div className={`flex items-center space-x-1.5 rounded-lg px-3 py-1.5 border text-xs font-medium ${
+                                config.codeType === 'application-code'
+                                    ? 'bg-blue-500/10 border-blue-500/30 text-blue-300'
+                                    : 'bg-purple-500/10 border-purple-500/30 text-purple-300'
+                            }`}>
+                                {config.codeType === 'application-code'
+                                    ? <Code2       className="w-3.5 h-3.5" />
+                                    : <FlaskConical className="w-3.5 h-3.5" />}
+                                <span>{config.codeType === 'application-code' ? 'App Code' : 'Test Code'}</span>
+                            </div>
+                            <ChevronRight className="w-3 h-3 text-slate-600" />
+                            <div className="flex items-center space-x-1.5 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5">
+                                <FileCode className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-xs text-slate-300">
+                                    {config.scope === 'whole-project'
+                                        ? 'Whole project'
+                                        : `${config.selectedFiles.length} file${config.selectedFiles.length !== 1 ? 's' : ''}`}
+                                </span>
+                            </div>
+                            {streaming && (
+                                <div className="flex items-center space-x-1.5 bg-purple-500/10 border border-purple-500/30 rounded-lg px-3 py-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                                    <span className="text-xs text-purple-300">Generating…</span>
+                                </div>
+                            )}
+                        </div>
+                        <button
+                            onClick={onReset}
+                            className="flex items-center space-x-1.5 text-slate-500 hover:text-white text-xs transition-colors"
+                        >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>New session</span>
+                        </button>
+                    </div>
+                )}
 
                 {/* Chat panel */}
                 <div className="flex-1 bg-white/5 border border-white/10 rounded-2xl flex flex-col overflow-hidden min-h-0">

@@ -235,8 +235,10 @@ async def analyze_gaps(
         issue_key = issue["key"]
         fields    = issue.get("fields", {})
         summary   = fields.get("summary", "")
-        status    = fields.get("status", {}).get("name", "")
-        ac_text   = jira_service._extract_acceptance_criteria(fields.get("description"))
+        status_obj      = fields.get("status", {})
+        status          = status_obj.get("name", "")
+        status_category = status_obj.get("statusCategory", {}).get("key", "new")
+        ac_text         = jira_service._extract_acceptance_criteria(fields.get("description"))
 
         db_task = existing_tasks.get(issue_key)
         if db_task:
@@ -259,6 +261,7 @@ async def analyze_gaps(
             "task_key":            issue_key,
             "summary":             summary,
             "status":              status,
+            "status_category":     status_category,
             "acceptance_criteria": ac_text,
             "_db_id":              db_task.id,
         })
@@ -444,6 +447,46 @@ async def simulate_tests_for_gap(
     result = await loop.run_in_executor(
         None,
         groq_service.simulate_tests,
+        request.task_summary,
+        request.acceptance_criteria,
+        request.gap_type,
+        files_with_content,
+    )
+
+    return result
+
+
+@router.post("/gaps/generate-tests")
+async def generate_tests_for_gap(
+    request: SimulateTestsRequest,
+    db: Session = Depends(get_db),
+    authorization: str = Header(...),
+):
+    token = authorization.removeprefix("Bearer ").strip()
+    user = auth_service.get_current_user(db, token)
+
+    files_with_content: List[dict] = []
+    for file_path in request.source_files[:5]:
+        try:
+            raw = await github_service.get_file_content(
+                user.github_access_token,
+                request.repo_owner,
+                request.repo_name,
+                file_path,
+            )
+            content = raw if isinstance(raw, str) else raw.get("content", "")
+            files_with_content.append({"path": file_path, "content": content})
+        except Exception as e:
+            logger.warning("Could not fetch source file %s: %s", file_path, e)
+            files_with_content.append({
+                "path":    file_path,
+                "content": "# [File could not be fetched]",
+            })
+
+    loop   = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None,
+        groq_service.generate_test_for_gap,
         request.task_summary,
         request.acceptance_criteria,
         request.gap_type,

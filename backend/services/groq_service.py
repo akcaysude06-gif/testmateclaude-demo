@@ -27,7 +27,32 @@ class GroqService:
             )
             return response.choices[0].message.content
         except Exception as e:
+            error_str = str(e)
+            if "429" in error_str or "rate_limit_exceeded" in error_str:
+                reset_time = self._parse_reset_time(error_str)
+                if reset_time:
+                    raise HTTPException(status_code=429, detail=f"AI usage limit reached. Please try again in {reset_time}.")
+                raise HTTPException(status_code=429, detail="AI usage limit reached. Please try again later.")
             raise HTTPException(status_code=500, detail=f"Error calling Groq API: {str(e)}")
+
+    def _parse_reset_time(self, error_str: str) -> str:
+        match = re.search(r'Please try again in ([^\s.]+(?:\s[^\s.]+)*?)\.', error_str)
+        if not match:
+            return ""
+        raw = match.group(1).strip()
+        # Convert e.g. "1h21m34.559999999s" → "1 hour 21 minutes"
+        parts = []
+        h = re.search(r'(\d+)h', raw)
+        m = re.search(r'(\d+)m', raw)
+        s = re.search(r'(\d+(?:\.\d+)?)s', raw)
+        if h:
+            parts.append(f"{h.group(1)} hour{'s' if int(h.group(1)) != 1 else ''}")
+        if m:
+            parts.append(f"{m.group(1)} minute{'s' if int(m.group(1)) != 1 else ''}")
+        if s and not h and not m:
+            secs = int(float(s.group(1)))
+            parts.append(f"{secs} second{'s' if secs != 1 else ''}")
+        return " and ".join(parts) if parts else raw
 
     def generate_selenium_code(self, test_description: str) -> dict:
         prompt = f"""You are an expert Selenium automation engineer. Generate a complete, professional Selenium Python script based on this test description:
@@ -354,6 +379,103 @@ Never write "Not specified" or "No acceptance criteria" as a condition.
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to simulate tests: {str(e)}")
+
+    def generate_test_for_gap(
+        self,
+        task_summary:        str,
+        acceptance_criteria: str,
+        gap_type:            str,
+        source_files:        list[dict],
+    ) -> dict:
+        """
+        Generate an actual test file for a missing/untested task.
+        Returns test_code, a short summary, and a list of main points.
+        """
+        gap_context = {
+            "not_started": "No implementation files found — this task has not been started yet.",
+            "untested":    "Source files exist but no dedicated test files were found.",
+            "complete":    "Both source files and test files exist.",
+        }.get(gap_type, "")
+
+        files_block = ""
+        if source_files:
+            snippets = []
+            for f in source_files[:5]:
+                content = (f.get("content") or "")[:3000]
+                snippets.append(f"### {f['path']}\n```\n{content}\n```")
+            files_block = "\n\n".join(snippets)
+        else:
+            files_block = "(No source files available — generate tests based on task description alone)"
+
+        ac_section = f"ACCEPTANCE CRITERIA:\n{acceptance_criteria}" if acceptance_criteria and acceptance_criteria.strip() else ""
+
+        prompt = f"""You are a senior QA engineer. Generate a complete, production-ready pytest test file for the following Jira task.
+
+JIRA TASK: {task_summary}
+{ac_section}
+IMPLEMENTATION STATUS: {gap_context}
+
+SOURCE FILES:
+{files_block}
+
+Your response MUST follow this EXACT format:
+
+SUMMARY:
+[One sentence describing what this test suite validates]
+
+MAIN POINTS:
+- [Key aspect 1 being tested]
+- [Key aspect 2 being tested]
+- [Key aspect 3 being tested]
+(add more points as needed, minimum 3)
+
+```python
+[Complete pytest test code that tests the task described above. Include imports, fixtures, and at least 3 test functions. Use realistic assertions. If no source files are available, generate tests based on the task description using mocks or stubs.]
+```
+
+Do NOT add any extra prose. Only the three sections above."""
+
+        try:
+            response = self.generate_text(prompt, max_tokens=4000)
+
+            summary = ""
+            main_points: list[str] = []
+            code = ""
+
+            if "SUMMARY:" in response:
+                s_start = response.find("SUMMARY:") + 8
+                s_end   = response.find("\n", s_start)
+                summary = response[s_start:s_end].strip() if s_end != -1 else response[s_start:].strip()
+
+            if "MAIN POINTS:" in response:
+                mp_start = response.find("MAIN POINTS:") + 12
+                mp_end   = response.find("```", mp_start)
+                mp_block = response[mp_start:mp_end].strip() if mp_end != -1 else response[mp_start:].strip()
+                main_points = [
+                    line.lstrip("- •*").strip()
+                    for line in mp_block.splitlines()
+                    if line.strip().startswith(("-", "•", "*"))
+                ]
+
+            last_py = response.rfind("```python")
+            if last_py != -1:
+                code_start = last_py + 9
+                code_end   = response.find("```", code_start)
+                if code_end != -1:
+                    code = response[code_start:code_end].strip()
+
+            return {
+                "test_code":   code or "# Test generation failed — no code returned",
+                "summary":     summary or f"Tests for: {task_summary}",
+                "main_points": main_points or ["Test generation returned no structured points"],
+                "gap_type":    gap_type,
+                "model":       self.model,
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to generate test: {str(e)}")
 
     def verify_test_coverage(
         self,

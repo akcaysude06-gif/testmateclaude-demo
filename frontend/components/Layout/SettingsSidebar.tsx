@@ -5,10 +5,12 @@ const POSITION_KEY = 'testmate_sidebar_position';
 
 interface SettingsSidebarProps {
     onOpenBeginnerMode: () => void;
+    onOpenProductionMode: () => void;
+    currentMode: 'guided' | 'production' | null;
     onSideChange?: (side: 'left' | 'right') => void;
 }
 
-const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode, onSideChange }) => {
+const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode, onOpenProductionMode, currentMode, onSideChange }) => {
     const [open, setOpen] = useState(false);
     const [side, setSide] = useState<'left' | 'right'>('right');
 
@@ -98,7 +100,7 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode, o
 
                     <div className="border-t border-white/10" />
 
-                    {/* Beginner Mode */}
+                    {/* Mode switcher */}
                     <section>
                         <div className="flex items-center gap-2 mb-3">
                             <BookOpen className="w-4 h-4 text-white/50" />
@@ -106,16 +108,32 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode, o
                                 Mode
                             </span>
                         </div>
-                        <button
-                            onClick={() => { onOpenBeginnerMode(); setOpen(false); }}
-                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg
-                                       bg-purple-500/10 border border-purple-500/30
-                                       hover:bg-purple-500/20 hover:border-purple-500/50
-                                       transition-all text-purple-300 hover:text-purple-200 text-sm"
-                        >
-                            <BookOpen className="w-4 h-4 flex-shrink-0" />
-                            <span>Open Beginner Mode</span>
-                        </button>
+                        <div className="flex flex-col gap-2">
+                            {(currentMode === null || currentMode === 'production') && (
+                                <button
+                                    onClick={() => { onOpenBeginnerMode(); setOpen(false); }}
+                                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg
+                                               bg-purple-500/10 border border-purple-500/30
+                                               hover:bg-purple-500/20 hover:border-purple-500/50
+                                               transition-all text-purple-300 hover:text-purple-200 text-sm"
+                                >
+                                    <BookOpen className="w-4 h-4 flex-shrink-0" />
+                                    <span>Open &apos;New to Testing&apos;</span>
+                                </button>
+                            )}
+                            {(currentMode === null || currentMode === 'guided') && (
+                                <button
+                                    onClick={() => { onOpenProductionMode(); setOpen(false); }}
+                                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg
+                                               bg-blue-500/10 border border-blue-500/30
+                                               hover:bg-blue-500/20 hover:border-blue-500/50
+                                               transition-all text-blue-300 hover:text-blue-200 text-sm"
+                                >
+                                    <BookOpen className="w-4 h-4 flex-shrink-0" />
+                                    <span>Open &apos;Production Mode&apos;</span>
+                                </button>
+                            )}
+                        </div>
                     </section>
 
                     <div className="border-t border-white/10" />

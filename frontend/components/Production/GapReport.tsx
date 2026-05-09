@@ -1,10 +1,10 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
     CheckCircle2, AlertTriangle, XCircle,
-    ChevronDown, Code2, Loader2, Wand2,
+    ChevronDown, Loader2, Wand2,
     ListTodo, PlayCircle, CheckCheck, X,
     FileCode2, ChevronRight as ChevronRightIcon,
-    FlaskConical, Plus, Search, Ban,
+    FlaskConical, Plus, Search, Ban, ClipboardList, RefreshCw,
 } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { authUtils } from '../../utils/auth';
@@ -13,6 +13,7 @@ interface GapItem {
     task_key:             string;
     summary:              string;
     status:               string;
+    status_category?:     string;
     gap_type:             'not_started' | 'untested' | 'complete' | 'non_code_task';
     keywords:             string[];
     source_files:         string[];
@@ -32,22 +33,32 @@ interface GapStats {
     non_code_task_pct:  number;
 }
 
-interface SimulateResult {
-    verdict:     string;
-    explanation: string;
+export interface EvaluateCondition {
+    condition: string;
+    status:    'SATISFIED' | 'NOT SATISFIED' | 'INCONCLUSIVE';
+    reason:    string;
+}
+
+export interface EvaluateResult {
+    verdict:    string;
+    conditions: EvaluateCondition[];
+}
+
+export interface GenerateResult {
     test_code:   string;
-    task_key:    string;
-    task_summary: string;
+    summary:     string;
+    main_points: string[];
 }
 
 interface GapReportProps {
-    repoOwner:        string;
-    repoName:         string;
-    onSkip:           () => void;
-    onSimulateResult: (result: SimulateResult) => void;
+    repoOwner:         string;
+    repoName:          string;
+    onSkip:            () => void;
+    onEvaluateResult?: (taskKey: string, summary: string, result: EvaluateResult) => void;
+    onGenerateResult?: (taskKey: string, summary: string, result: GenerateResult) => void;
 }
 
-type SprintTab = 'todo' | 'in_progress' | 'done';
+type SprintTab = 'todo' | 'in_progress' | 'done' | null;
 
 interface FilePreview {
     path:    string;
@@ -87,11 +98,15 @@ const GAP_META = {
     },
 } as const;
 
-function classifyJiraStatus(status: string): SprintTab {
-    const s = status.toLowerCase();
-    const doneWords     = ['done', 'closed', 'resolved', 'fixed', 'verified', 'complete', 'completed', "won't fix", 'duplicate', 'released'];
+function classifyJiraStatus(status: string, statusCategory?: string): SprintTab {
+    if (statusCategory === 'done')          return 'done';
+    if (statusCategory === 'new')           return 'todo';
+    if (statusCategory === 'indeterminate') return 'in_progress';
+
+    const s = status.toLowerCase().trim();
+    const doneWords     = ['done', 'closed', 'resolved', 'fixed', 'verified', 'completed', "won't fix", 'duplicate', 'released'];
     const progressWords = ['progress', 'review', 'development', 'testing', 'active', 'started', 'doing'];
-    if (doneWords.some(w => s.includes(w)))     return 'done';
+    if (doneWords.some(w => s === w || s.startsWith(w + ' ') || s.endsWith(' ' + w) || s.includes(' ' + w + ' '))) return 'done';
     if (progressWords.some(w => s.includes(w))) return 'in_progress';
     return 'todo';
 }
@@ -102,9 +117,7 @@ const SPRINT_TABS: { id: SprintTab; label: string; icon: React.ReactNode; emptyT
     { id: 'done',        label: 'Completed',  icon: <CheckCheck className="w-3.5 h-3.5" />, emptyText: 'No completed tasks found.' },
 ];
 
-// Syntax-highlight a code line with simple token colouring
 function highlightLine(line: string): React.ReactNode {
-    // Very lightweight: colour keywords, strings, comments
     const commentMatch = line.match(/^(\s*)(#.*)$/);
     if (commentMatch) {
         return <><span>{commentMatch[1]}</span><span className="text-slate-500 italic">{commentMatch[2]}</span></>;
@@ -112,23 +125,73 @@ function highlightLine(line: string): React.ReactNode {
     return <span>{line}</span>;
 }
 
-const MIN_PANEL_WIDTH = 320;
-const MAX_PANEL_WIDTH = 900;
-const DEFAULT_PANEL_WIDTH = 520;
+function parseApiError(err: any): string {
+    const raw: string = err?.response?.data?.detail || err?.message || '';
+    const waitMatch = raw.match(/Please try again in ([^.]+)/i);
+    if (raw.includes('rate_limit_exceeded') || raw.includes('Rate limit reached')) {
+        const wait = waitMatch ? ` Try again in ${waitMatch[1].trim()}.` : '';
+        return `Daily AI token limit reached.${wait}`;
+    }
+    return raw || 'Request failed.';
+}
 
-const SIDEBAR_COLLAPSED_WIDTH = 48; // matches SettingsSidebar collapsed width
+function parseConditions(explanation: string): EvaluateCondition[] {
+    const conditions: EvaluateCondition[] = [];
+    const blocks = explanation.split(/(?=^- Condition:)/m);
+    for (const block of blocks) {
+        const condMatch   = block.match(/^- Condition:\s*(.+)/m);
+        const statusMatch = block.match(/Status:\s*(SATISFIED|NOT SATISFIED|INCONCLUSIVE)/i);
+        const reasonMatch = block.match(/Reason:\s*(.+)/);
+        if (condMatch && statusMatch) {
+            conditions.push({
+                condition: condMatch[1].trim(),
+                status:    statusMatch[1].toUpperCase() as EvaluateCondition['status'],
+                reason:    reasonMatch ? reasonMatch[1].trim() : '',
+            });
+        }
+    }
+    return conditions;
+}
+
+export function verdictLabel(verdict: string): { text: string; cls: string } {
+    const v = verdict.toUpperCase();
+    if (v === 'PASS')        return { text: 'Done',           cls: 'bg-green-500/20 text-green-300 border-green-500/30' };
+    if (v === 'FAIL')        return { text: 'Not done',       cls: 'bg-red-500/20 text-red-300 border-red-500/30' };
+    return                          { text: 'Partially done', cls: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30' };
+}
+
+export function conditionPill(status: EvaluateCondition['status']): { text: string; cls: string } {
+    if (status === 'SATISFIED')     return { text: 'Done',     cls: 'bg-green-500/20 text-green-300 border-green-500/30' };
+    if (status === 'NOT SATISFIED') return { text: 'Not done', cls: 'bg-red-500/20 text-red-300 border-red-500/30' };
+    return                                 { text: 'Unknown',  cls: 'bg-slate-500/20 text-slate-300 border-slate-500/30' };
+}
+
+function downloadPy(taskKey: string, code: string) {
+    const blob = new Blob([code], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `test_${taskKey.replace(/-/g, '_').toLowerCase()}.py`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+const MIN_PANEL_WIDTH     = 320;
+const MAX_PANEL_WIDTH     = 900;
+const DEFAULT_PANEL_WIDTH = 520;
+const SIDEBAR_COLLAPSED_WIDTH = 48;
 
 const CodePanel: React.FC<{
     preview: FilePreview;
     onClose: () => void;
 }> = ({ preview, onClose }) => {
-    const [width, setWidth]         = useState(DEFAULT_PANEL_WIDTH);
+    const [width, setWidth]             = useState(DEFAULT_PANEL_WIDTH);
     const [sidebarSide, setSidebarSide] = useState<'left' | 'right'>(
         () => (localStorage.getItem('testmate_sidebar_position') as 'left' | 'right') || 'right'
     );
-    const dragging                  = useRef(false);
-    const startX                    = useRef(0);
-    const startWidth                = useRef(0);
+    const dragging   = useRef(false);
+    const startX     = useRef(0);
+    const startWidth = useRef(0);
 
     useEffect(() => {
         const onStorage = (e: StorageEvent) => {
@@ -142,8 +205,8 @@ const CodePanel: React.FC<{
 
     const onMouseDown = (e: React.MouseEvent) => {
         e.preventDefault();
-        dragging.current  = true;
-        startX.current    = e.clientX;
+        dragging.current   = true;
+        startX.current     = e.clientX;
         startWidth.current = width;
 
         const onMove = (ev: MouseEvent) => {
@@ -162,7 +225,6 @@ const CodePanel: React.FC<{
 
     const lines    = preview.content ? preview.content.split('\n') : [];
     const fileName = preview.path.split('/').pop() ?? preview.path;
-
     const rightOffset = sidebarSide === 'right' ? SIDEBAR_COLLAPSED_WIDTH : 0;
 
     return (
@@ -170,7 +232,6 @@ const CodePanel: React.FC<{
             style={{ width, minWidth: MIN_PANEL_WIDTH, maxWidth: MAX_PANEL_WIDTH, right: rightOffset }}
             className="fixed top-24 bottom-4 flex flex-col bg-[#0d1117] border border-white/10 rounded-tl-xl shadow-2xl z-40"
         >
-            {/* Drag handle on left edge */}
             <div
                 onMouseDown={onMouseDown}
                 className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-purple-500/40 transition-colors z-10 group rounded-tl-xl"
@@ -179,7 +240,6 @@ const CodePanel: React.FC<{
                 <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-12 rounded-full bg-white/10 group-hover:bg-purple-400/60 transition-colors" />
             </div>
 
-            {/* Header */}
             <div className="flex items-center pl-5 pr-4 py-2.5 border-b border-white/10 bg-white/5 flex-shrink-0 rounded-tl-xl space-x-2">
                 <button
                     onClick={onClose}
@@ -194,12 +254,10 @@ const CodePanel: React.FC<{
                 </div>
             </div>
 
-            {/* Breadcrumb */}
             <div className="pl-5 pr-3 py-1.5 border-b border-white/5 bg-white/[0.02]">
                 <p className="text-[10px] font-mono text-slate-600 truncate">{preview.path}</p>
             </div>
 
-            {/* Content */}
             <div className="flex-1 overflow-auto">
                 {preview.loading && (
                     <div className="flex items-center justify-center h-32 space-x-2 text-slate-500">
@@ -236,22 +294,28 @@ const CodePanel: React.FC<{
     );
 };
 
-const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSimulateResult }) => {
-    const [loading,           setLoading]           = useState(false);
-    const [error,             setError]             = useState<string | null>(null);
-    const [gaps,              setGaps]              = useState<GapItem[]>([]);
-    const [activeTab,         setActiveTab]         = useState<SprintTab>('in_progress');
-    const [gapFilters,        setGapFilters]        = useState<Set<keyof typeof GAP_META>>(new Set());
-    const [expanded,          setExpanded]          = useState<Set<string>>(new Set());
-    const [simulating,        setSimulating]        = useState<string | null>(null);
-    const [filePreview,       setFilePreview]       = useState<FilePreview | null>(null);
+const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onEvaluateResult, onGenerateResult }) => {
+    const [loading,         setLoading]         = useState(false);
+    const [error,           setError]           = useState<string | null>(null);
+    const [gaps,            setGaps]            = useState<GapItem[]>([]);
+    const [activeTab,       setActiveTab]       = useState<SprintTab>('in_progress' as SprintTab);
+    const [gapFilters,      setGapFilters]      = useState<Set<keyof typeof GAP_META>>(new Set());
+    const [expanded,        setExpanded]        = useState<Set<string>>(new Set());
+    const [filePreview,     setFilePreview]     = useState<FilePreview | null>(null);
     const [editedSources,     setEditedSources]     = useState<Record<string, string[]>>({});
     const [allRepoFiles,      setAllRepoFiles]      = useState<string[]>([]);
     const [addingFileFor,     setAddingFileFor]     = useState<string | null>(null);
     const [fileSearchQuery,   setFileSearchQuery]   = useState<Record<string, string>>({});
     const [changingTypeFor,   setChangingTypeFor]   = useState<string | null>(null);
+    const [manualGapTypes,    setManualGapTypes]    = useState<Record<string, string>>({});
+    const [showReanalyzeModal, setShowReanalyzeModal] = useState(false);
 
-    // Compute stats live from gaps so manual overrides are reflected immediately
+    // Per-card evaluate/generate state
+    const [evaluateResults,  setEvaluateResults]  = useState<Record<string, EvaluateResult>>({});
+    const [evaluateLoading,  setEvaluateLoading]  = useState<Record<string, boolean>>({});
+    const [generateResults,  setGenerateResults]  = useState<Record<string, GenerateResult>>({});
+    const [generateLoading,  setGenerateLoading]  = useState<Record<string, boolean>>({});
+
     const stats: GapStats | null = gaps.length === 0 ? null : (() => {
         const total = gaps.length;
         const count = (t: string) => gaps.filter(g => g.gap_type === t).length;
@@ -278,19 +342,32 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
             const files = await apiService.getRepoFlatFiles(repoOwner, repoName, token!);
             setAllRepoFiles(files);
         } catch {
-            // non-critical — add source file search just won't work
+            // non-critical
         }
     };
 
-    const runAnalysis = async () => {
+    const runAnalysis = async (gapTypeOverrides?: Record<string, string>) => {
         setLoading(true);
         setError(null);
         try {
             const data  = await apiService.analyzeGaps(repoOwner, repoName);
-            setGaps(data.gaps);
+            let newGaps = data.gaps as GapItem[];
+
+            if (gapTypeOverrides && Object.keys(gapTypeOverrides).length > 0) {
+                newGaps = newGaps.map(g =>
+                    gapTypeOverrides[g.task_key]
+                        ? { ...g, gap_type: gapTypeOverrides[g.task_key] as GapItem['gap_type'] }
+                        : g
+                );
+                for (const [taskKey, gapType] of Object.entries(gapTypeOverrides)) {
+                    try { await apiService.updateGapType(taskKey, gapType); } catch {}
+                }
+            }
+
+            setGaps(newGaps);
             const grouped = { todo: 0, in_progress: 0, done: 0 };
-            (data.gaps as GapItem[]).forEach(g => { grouped[classifyJiraStatus(g.status)]++; });
-            const dominant = (Object.entries(grouped) as [SprintTab, number][])
+            newGaps.forEach(g => { grouped[classifyJiraStatus(g.status, g.status_category)]++; });
+            const dominant = (Object.entries(grouped) as [Exclude<SprintTab, null>, number][])
                 .sort((a, b) => b[1] - a[1])[0][0];
             setActiveTab(dominant);
         } catch (err: any) {
@@ -299,6 +376,28 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
         } finally {
             setLoading(false);
         }
+    };
+
+    const hasChanges = Object.keys(manualGapTypes).length > 0 || Object.keys(editedSources).length > 0;
+
+    const handleReanalyzeClick = () => {
+        if (hasChanges) {
+            setShowReanalyzeModal(true);
+        } else {
+            runAnalysis();
+        }
+    };
+
+    const handleReanalyzeKeepChanges = () => {
+        setShowReanalyzeModal(false);
+        runAnalysis(manualGapTypes);
+    };
+
+    const handleReanalyzeDiscardChanges = () => {
+        setShowReanalyzeModal(false);
+        setManualGapTypes({});
+        setEditedSources({});
+        runAnalysis();
     };
 
     const toggleExpand = (key: string) => {
@@ -327,25 +426,29 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
 
     const handleChangeGapType = async (taskKey: string, currentType: string, newType: string) => {
         if (currentType === newType) { setChangingTypeFor(null); return; }
-        // Optimistic update
         setGaps(prev => prev.map(g =>
             g.task_key === taskKey ? { ...g, gap_type: newType as GapItem['gap_type'] } : g
         ));
+        setManualGapTypes(prev => ({ ...prev, [taskKey]: newType }));
         setChangingTypeFor(null);
         try {
             await apiService.updateGapType(taskKey, newType);
         } catch {
-            // Revert on error
             setGaps(prev => prev.map(g =>
                 g.task_key === taskKey ? { ...g, gap_type: currentType as GapItem['gap_type'] } : g
             ));
+            setManualGapTypes(prev => {
+                const next = { ...prev };
+                delete next[taskKey];
+                return next;
+            });
         }
     };
 
-    const handleSimulateTests = async (gap: GapItem) => {
-        setSimulating(gap.task_key);
+    const handleEvaluate = async (gap: GapItem) => {
+        setEvaluateLoading(prev => ({ ...prev, [gap.task_key]: true }));
         try {
-            const res   = await apiService.simulateTests(
+            const res = await apiService.simulateTests(
                 gap.gap_type,
                 gap.task_key,
                 gap.summary,
@@ -354,22 +457,61 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                 repoOwner,
                 repoName,
             );
-            onSimulateResult({ ...res, task_key: gap.task_key, task_summary: gap.summary });
+            const evalResult: EvaluateResult = {
+                verdict:    res.verdict,
+                conditions: parseConditions(res.explanation),
+            };
+            setEvaluateResults(prev => ({ ...prev, [gap.task_key]: evalResult }));
+            onEvaluateResult?.(gap.task_key, gap.summary, evalResult);
         } catch (err: any) {
-            onSimulateResult({
-                verdict:      'ERROR',
-                explanation:  err.response?.data?.detail || 'Simulation failed.',
-                test_code:    '',
-                task_key:     gap.task_key,
-                task_summary: gap.summary,
-            });
+            const evalResult: EvaluateResult = {
+                verdict:    'INCONCLUSIVE',
+                conditions: [{
+                    condition: 'Evaluation request',
+                    status:    'INCONCLUSIVE',
+                    reason:    parseApiError(err),
+                }],
+            };
+            setEvaluateResults(prev => ({ ...prev, [gap.task_key]: evalResult }));
+            onEvaluateResult?.(gap.task_key, gap.summary, evalResult);
         } finally {
-            setSimulating(null);
+            setEvaluateLoading(prev => ({ ...prev, [gap.task_key]: false }));
+        }
+    };
+
+    const handleGenerateTests = async (gap: GapItem) => {
+        setGenerateLoading(prev => ({ ...prev, [gap.task_key]: true }));
+        try {
+            const res = await apiService.generateTests(
+                gap.gap_type,
+                gap.task_key,
+                gap.summary,
+                gap.acceptance_criteria || '',
+                effectiveSourceFiles(gap),
+                repoOwner,
+                repoName,
+            );
+            const genResult: GenerateResult = {
+                test_code:   res.test_code,
+                summary:     res.summary,
+                main_points: res.main_points,
+            };
+            setGenerateResults(prev => ({ ...prev, [gap.task_key]: genResult }));
+            onGenerateResult?.(gap.task_key, gap.summary, genResult);
+        } catch (err: any) {
+            const genResult: GenerateResult = {
+                test_code:   '',
+                summary:     parseApiError(err),
+                main_points: [],
+            };
+            setGenerateResults(prev => ({ ...prev, [gap.task_key]: genResult }));
+            onGenerateResult?.(gap.task_key, gap.summary, genResult);
+        } finally {
+            setGenerateLoading(prev => ({ ...prev, [gap.task_key]: false }));
         }
     };
 
     const openFilePreview = useCallback(async (filePath: string) => {
-        // If clicking the same file, close
         if (filePreview?.path === filePath && !filePreview.loading) {
             setFilePreview(null);
             return;
@@ -385,7 +527,6 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
         }
     }, [filePreview, repoOwner, repoName]);
 
-    // ── Loading / error before results ───────────────────────────────────────
     if (!stats) {
         return (
             <div className="w-full flex flex-col items-center justify-center py-16 space-y-4">
@@ -413,15 +554,13 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
         );
     }
 
-    const grouped: Record<SprintTab, GapItem[]> = { todo: [], in_progress: [], done: [] };
-    gaps.forEach(g => grouped[classifyJiraStatus(g.status)].push(g));
-    const tabGaps    = grouped[activeTab];
+    const grouped: Record<Exclude<SprintTab, null>, GapItem[]> = { todo: [], in_progress: [], done: [] };
+    gaps.forEach(g => grouped[classifyJiraStatus(g.status, g.status_category)].push(g));
+    const tabGaps    = activeTab === null ? gaps : grouped[activeTab];
     const visibleGaps = gapFilters.size > 0 ? tabGaps.filter(g => gapFilters.has(g.gap_type)) : tabGaps;
 
-    // ── Results ───────────────────────────────────────────────────────────────
     return (
         <div className="w-full">
-            {/* Gap list — full width, panel floats over it */}
             <div className="flex flex-col w-full pr-6">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-5">
@@ -429,19 +568,32 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                         <h2 className="text-xl font-bold text-white">Gap Report — {repoName}</h2>
                         <p className="text-slate-400 text-xs mt-0.5">{stats.total} Jira tasks analysed</p>
                     </div>
-                    <button
-                        onClick={onSkip}
-                        className="px-4 py-2 rounded-xl text-xs font-semibold transition-all"
-                        style={{
-                            background: 'linear-gradient(135deg, var(--theme-via), var(--theme-accent))',
-                            color: '#fff',
-                            boxShadow: '0 0 12px var(--theme-accent)55',
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-                        onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-                    >
-                        Continue to AI Chat →
-                    </button>
+                    <div className="flex items-center space-x-2">
+                        <button
+                            onClick={handleReanalyzeClick}
+                            disabled={loading}
+                            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-semibold border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                            <span>Re-analyze</span>
+                            {hasChanges && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" title="You have unsaved changes" />
+                            )}
+                        </button>
+                        <button
+                            onClick={onSkip}
+                            className="px-4 py-2 rounded-xl text-xs font-semibold transition-all"
+                            style={{
+                                background: 'linear-gradient(135deg, var(--theme-via), var(--theme-accent))',
+                                color: '#fff',
+                                boxShadow: '0 0 12px var(--theme-accent)55',
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+                            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+                        >
+                            Continue to AI Chat →
+                        </button>
+                    </div>
                 </div>
 
                 {/* Stats cards */}
@@ -481,12 +633,15 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                 {/* Sprint tabs */}
                 <div className="flex space-x-1 bg-white/5 rounded-xl p-1 mb-4">
                     {SPRINT_TABS.map(tab => {
-                        const count  = grouped[tab.id].length;
+                        const count  = grouped[tab.id as Exclude<SprintTab, null>].length;
                         const active = activeTab === tab.id;
                         return (
                             <button
                                 key={tab.id}
-                                onClick={() => { setActiveTab(tab.id); setGapFilters(new Set()); }}
+                                onClick={() => {
+                                    setGapFilters(new Set());
+                                    setActiveTab(active ? null : tab.id as Exclude<SprintTab, null>);
+                                }}
                                 className={`flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-lg text-xs font-medium transition-all ${
                                     active ? 'bg-white/10 text-white shadow' : 'text-slate-500 hover:text-slate-300'
                                 }`}
@@ -506,20 +661,27 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                     <div className="text-center py-12 text-slate-500 text-sm">
                         {gapFilters.size > 0
                             ? `No ${[...gapFilters].map(f => `'${GAP_META[f].label}'`).join(' or ')} tasks in this tab.`
-                            : SPRINT_TABS.find(t => t.id === activeTab)?.emptyText}
+                            : activeTab === null
+                                ? 'No tasks found.'
+                                : SPRINT_TABS.find(t => t.id === activeTab)?.emptyText}
                     </div>
                 ) : (
                     <div className="space-y-2">
                         {visibleGaps.map(gap => {
-                            const m            = GAP_META[gap.gap_type];
-                            const isExpanded   = expanded.has(gap.task_key);
-                            const isSimulating = simulating === gap.task_key;
+                            const m              = GAP_META[gap.gap_type];
+                            const isExpanded     = expanded.has(gap.task_key);
+                            const isEvalLoading  = evaluateLoading[gap.task_key] ?? false;
+                            const isGenLoading   = generateLoading[gap.task_key] ?? false;
+                            const evalResult     = evaluateResults[gap.task_key] ?? null;
+                            const genResult      = generateResults[gap.task_key] ?? null;
+                            const canGenerate    = gap.gap_type === 'not_started' || gap.gap_type === 'untested';
 
                             return (
                                 <div
                                     key={gap.task_key}
                                     className="bg-white/5 border border-white/10 rounded-xl overflow-hidden"
                                 >
+                                    {/* Card header row */}
                                     <div className="flex items-center px-4 py-3">
                                         <button
                                             onClick={() => toggleExpand(gap.task_key)}
@@ -539,35 +701,59 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                                                 <span>{m.label}</span>
                                             </span>
                                         </button>
-                                        {gap.gap_type === 'non_code_task' ? (
-                                            <span className="ml-3 flex-shrink-0 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-500/10 border border-slate-500/20 text-slate-500 text-xs font-medium cursor-not-allowed"
-                                                title="No source code to simulate tests against">
-                                                <Ban className="w-3 h-3" />
-                                                <span>Not Applicable</span>
-                                            </span>
-                                        ) : (
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); handleSimulateTests(gap); }}
-                                                disabled={isSimulating}
-                                                className="ml-3 flex-shrink-0 flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 hover:border-indigo-400 text-indigo-300 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                            >
-                                                {isSimulating
-                                                    ? <><Loader2 className="w-3 h-3 animate-spin" /><span>Simulating…</span></>
-                                                    : <><FlaskConical className="w-3 h-3" /><span>Simulate Tests</span></>
-                                                }
-                                            </button>
-                                        )}
+
+                                        {/* Action buttons */}
+                                        <div className="ml-3 flex-shrink-0 flex items-center space-x-2">
+                                            {gap.gap_type === 'non_code_task' ? (
+                                                <span
+                                                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-500/10 border border-slate-500/20 text-slate-500 text-xs font-medium cursor-not-allowed"
+                                                    title="No source code to evaluate against"
+                                                >
+                                                    <Ban className="w-3 h-3" />
+                                                    <span>Not Applicable</span>
+                                                </span>
+                                            ) : (
+                                                <>
+                                                    {/* Evaluate button */}
+                                                    <button
+                                                        onClick={e => { e.stopPropagation(); handleEvaluate(gap); }}
+                                                        disabled={isEvalLoading}
+                                                        className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-white/10 border border-white/15 hover:border-white/30 text-slate-300 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        {isEvalLoading
+                                                            ? <><Loader2 className="w-3 h-3 animate-spin" /><span>Evaluating…</span></>
+                                                            : <><ClipboardList className="w-3 h-3" /><span>Evaluate</span></>
+                                                        }
+                                                    </button>
+
+                                                    {/* Generate tests button — invisible when not applicable */}
+                                                    <button
+                                                        onClick={e => { e.stopPropagation(); handleGenerateTests(gap); }}
+                                                        disabled={isGenLoading || !canGenerate}
+                                                        className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/30 hover:border-indigo-400 text-indigo-300 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                                                            !canGenerate ? 'invisible' : ''
+                                                        }`}
+                                                    >
+                                                        {isGenLoading
+                                                            ? <><Loader2 className="w-3 h-3 animate-spin" /><span>Generating…</span></>
+                                                            : <><FlaskConical className="w-3 h-3" /><span>Generate tests</span></>
+                                                        }
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
 
+                                    {/* Expanded details */}
                                     {isExpanded && (
                                         <div className="px-4 pb-4 space-y-3 border-t border-white/5">
 
-                                            {/* ── Manual status override ── */}
+                                            {/* Manual status override */}
                                             <div className="mt-3">
                                                 <p className="text-xs text-slate-500 mb-2 font-medium">Change status</p>
                                                 <div className="flex flex-wrap gap-1.5">
                                                     {(Object.keys(GAP_META) as Array<keyof typeof GAP_META>).map(type => {
-                                                        const opt      = GAP_META[type];
+                                                        const opt       = GAP_META[type];
                                                         const isCurrent = gap.gap_type === type;
                                                         const saving    = changingTypeFor === gap.task_key;
                                                         return (
@@ -622,7 +808,6 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                                                         );
                                                     })}
 
-                                                    {/* Add Source File button */}
                                                     {addingFileFor !== gap.task_key && (
                                                         <button
                                                             onClick={() => setAddingFileFor(gap.task_key)}
@@ -634,7 +819,6 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                                                     )}
                                                 </div>
 
-                                                {/* File search dropdown */}
                                                 {addingFileFor === gap.task_key && (
                                                     <div className="mt-2 bg-[#0d1117] border border-white/10 rounded-xl overflow-hidden">
                                                         <div className="flex items-center px-3 py-2 border-b border-white/10 space-x-2">
@@ -710,6 +894,7 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                                             )}
                                         </div>
                                     )}
+
                                 </div>
                             );
                         })}
@@ -717,12 +902,51 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onSi
                 )}
             </div>
 
-            {/* Floating code preview panel */}
             {filePreview && (
                 <CodePanel
                     preview={filePreview}
                     onClose={() => setFilePreview(null)}
                 />
+            )}
+
+            {showReanalyzeModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <div className="bg-[#0d1117] border border-white/15 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl">
+                        <h3 className="text-white font-semibold text-base mb-2">Keep your changes?</h3>
+                        <p className="text-slate-400 text-sm mb-5 leading-relaxed">
+                            You've manually adjusted{' '}
+                            {Object.keys(manualGapTypes).length > 0 && (
+                                <span className="text-slate-300">{Object.keys(manualGapTypes).length} task status{Object.keys(manualGapTypes).length !== 1 ? 'es' : ''}</span>
+                            )}
+                            {Object.keys(manualGapTypes).length > 0 && Object.keys(editedSources).length > 0 && ' and '}
+                            {Object.keys(editedSources).length > 0 && (
+                                <span className="text-slate-300">source files for {Object.keys(editedSources).length} task{Object.keys(editedSources).length !== 1 ? 's' : ''}</span>
+                            )}
+                            . Re-analyzing will reset everything — would you like to restore your changes afterward?
+                        </p>
+                        <div className="flex space-x-3">
+                            <button
+                                onClick={handleReanalyzeDiscardChanges}
+                                className="flex-1 px-4 py-2 rounded-xl text-sm font-medium bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 transition-all"
+                            >
+                                Discard &amp; Re-analyze
+                            </button>
+                            <button
+                                onClick={handleReanalyzeKeepChanges}
+                                className="flex-1 px-4 py-2 rounded-xl text-sm font-medium text-white transition-all"
+                                style={{ background: 'linear-gradient(135deg, var(--theme-via), var(--theme-accent))' }}
+                            >
+                                Keep &amp; Re-analyze
+                            </button>
+                        </div>
+                        <button
+                            onClick={() => setShowReanalyzeModal(false)}
+                            className="mt-3 w-full text-center text-xs text-slate-600 hover:text-slate-400 transition-colors"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
             )}
         </div>
     );

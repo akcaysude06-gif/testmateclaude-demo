@@ -302,7 +302,7 @@ Two mode cards are shown: "Guided Learning" (click to go to Level Selection) and
             onSettings={() => router.push('/account')}
             jiraStatus={jiraStatus}
             onConnectJira={() => setShowJiraSetup(true)}
-            showAIChat
+            showAIChat={currentMode !== 'production'}
             aiChatOpen={aiChatOpen}
             onAIChatToggle={setAiChatOpen}
             aiChatContext={getAiContext()}

@@ -5,7 +5,10 @@
       "Bash(git checkout *)",
       "Bash(python3 *)",
       "WebSearch",
-      "Bash(NODE_OPTIONS=\"\" npx tsc --noEmit)"
+      "Bash(NODE_OPTIONS=\"\" npx tsc --noEmit)",
+      "Bash(NODE_OPTIONS= node *)",
+      "Bash(unset NODE_OPTIONS)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

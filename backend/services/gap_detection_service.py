@@ -357,11 +357,14 @@ class GapDetectionService:
             summary = task.get("summary", "")
 
             # 1. Non-code detection — before keyword extraction
+            status_category = task.get("status_category", "new")
+
             if self._is_non_code_task(summary):
                 gaps.append({
                     "task_key":            task["task_key"],
                     "summary":             summary,
                     "status":              status,
+                    "status_category":     status_category,
                     "acceptance_criteria": task.get("acceptance_criteria", ""),
                     "gap_type":            GAP_NON_CODE_TASK,
                     "keywords":            [],
@@ -381,6 +384,7 @@ class GapDetectionService:
                     "task_key":            task["task_key"],
                     "summary":             summary,
                     "status":              status,
+                    "status_category":     status_category,
                     "acceptance_criteria": task.get("acceptance_criteria", ""),
                     "gap_type":            GAP_NON_CODE_TASK,
                     "keywords":            [],
@@ -394,17 +398,30 @@ class GapDetectionService:
             source  = related["source"]
             tests   = related["tests"]
 
-            if source and tests:
-                gap_type = GAP_COMPLETE
-            elif source and not tests:
-                gap_type = GAP_UNTESTED
-            else:
+            # Jira status constrains the maximum possible gap type.
+            # A "To Do" task cannot have complete code+tests by definition;
+            # an "In Progress" task may have code but should not be marked done.
+            status_category = task.get("status_category", "done")
+            if status_category == "new":
+                # Not started in Jira → treat as not_started regardless of file matches
                 gap_type = GAP_NOT_STARTED
+            elif status_category == "indeterminate":
+                # In progress → code may exist but not fully tested
+                gap_type = GAP_UNTESTED if source else GAP_NOT_STARTED
+            else:
+                # Done (or unknown) → use file evidence to determine completeness
+                if source and tests:
+                    gap_type = GAP_COMPLETE
+                elif source:
+                    gap_type = GAP_UNTESTED
+                else:
+                    gap_type = GAP_NOT_STARTED
 
             gaps.append({
                 "task_key":            task["task_key"],
                 "summary":             summary,
                 "status":              status,
+                "status_category":     status_category,
                 "acceptance_criteria": task.get("acceptance_criteria", ""),
                 "gap_type":            gap_type,
                 "keywords":            keywords,

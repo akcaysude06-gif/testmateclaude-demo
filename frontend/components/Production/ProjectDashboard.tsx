@@ -7,17 +7,18 @@ import { Repository } from './Production';
 import { SavedProject, upsertSavedProject } from './ConnectedProjectsPanel';
 import { apiService } from '../../services/api';
 import { authUtils } from '../../utils/auth';
-import GapReport from './GapReport';
+import GapReport, { EvaluateResult, GenerateResult } from './GapReport';
 import JiraConnect from './JiraConnect';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ProjectDashboardProps {
-    activeProject:    SavedProject | null;
-    onSelectRepo:     (repo: Repository) => void;
-    onJiraConnected:  (projectId: string, key: string, name: string) => void;
-    onSimulateResult: (result: any) => void;
-    onOpenAIChat:     () => void;
+    activeProject:     SavedProject | null;
+    onSelectRepo:      (repo: Repository) => void;
+    onJiraConnected:   (projectId: string, key: string, name: string) => void;
+    onOpenAIChat:      () => void;
+    onEvaluateResult?: (taskKey: string, summary: string, result: EvaluateResult) => void;
+    onGenerateResult?: (taskKey: string, summary: string, result: GenerateResult) => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -176,8 +177,9 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     activeProject,
     onSelectRepo,
     onJiraConnected,
-    onSimulateResult,
     onOpenAIChat,
+    onEvaluateResult,
+    onGenerateResult,
 }) => {
     const [showJiraConnect,    setShowJiraConnect]    = useState(false);
     const [jiraVerified,       setJiraVerified]       = useState<boolean | null>(null);
@@ -269,7 +271,13 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                     <span className="text-sm font-semibold text-white">Gap Analysis</span>
                     <span className="text-xs text-slate-500">— {repoName} × {activeProject.jira!.key}</span>
                 </div>
-                <GapReport repoOwner={owner} repoName={repoName} onSkip={onOpenAIChat} onSimulateResult={onSimulateResult} />
+                <GapReport
+                    repoOwner={owner}
+                    repoName={repoName}
+                    onSkip={onOpenAIChat}
+                    onEvaluateResult={onEvaluateResult}
+                    onGenerateResult={onGenerateResult}
+                />
             </div>
         );
     }

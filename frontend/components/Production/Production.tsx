@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronRight, Sparkles, MessageSquare, X, FlaskConical, CheckCircle2, XCircle, AlertTriangle, Code2, Download } from 'lucide-react';
+import { ChevronRight, Sparkles, MessageSquare, X, ClipboardList, FlaskConical, Code2, Download } from 'lucide-react';
+import {
+    EvaluateResult, GenerateResult,
+    verdictLabel, conditionPill,
+    EvaluateCondition,
+} from './GapReport';
 import { apiService } from '../../services/api';
 import { authUtils } from '../../utils/auth';
 import RepoStep from './steps/RepoStep';
@@ -97,10 +102,10 @@ const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, o
     const [savedProjects,   setSavedProjects]  = useState<SavedProject[]>(() => loadSavedProjects());
     const [activeProjectId, setActiveProjectId] = useState<string | null>(persisted?.activeProjectId ?? null);
     const [showAIChat,    setShowAIChat]    = useState(false);
+    const [panelTab,      setPanelTab]      = useState<'ai_chat' | 'evaluate' | 'generate'>('ai_chat');
+    const [evaluatePanelData, setEvaluatePanelData] = useState<{ taskKey: string; summary: string; result: EvaluateResult } | null>(null);
+    const [generatePanelData, setGeneratePanelData] = useState<{ taskKey: string; summary: string; result: GenerateResult } | null>(null);
     const [chatWidth,     setChatWidth]     = useState(420);
-    const [activePanel,   setActivePanel]   = useState<'chat' | 'results'>('chat');
-    const [lastSimResult, setLastSimResult] = useState<{ verdict: string; explanation: string; test_code: string; task_key: string; task_summary: string } | null>(null);
-    const [showTestCode,  setShowTestCode]  = useState(false);
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const isResizing       = useRef(false);
 
@@ -129,19 +134,24 @@ const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, o
         document.addEventListener('mouseup',   onMouseUp);
     }, []);
 
-    const handleSimulateResult = useCallback((result: any) => {
-        setLastSimResult(result);
-        setShowTestCode(false);
-        setActivePanel('results');
+    const handleEvaluateResult = useCallback((taskKey: string, summary: string, result: EvaluateResult) => {
+        setEvaluatePanelData({ taskKey, summary, result });
+        setPanelTab('evaluate');
         setShowAIChat(true);
     }, []);
 
-    const downloadTestCode = (taskKey: string, code: string) => {
+    const handleGenerateResult = useCallback((taskKey: string, summary: string, result: GenerateResult) => {
+        setGeneratePanelData({ taskKey, summary, result });
+        setPanelTab('generate');
+        setShowAIChat(true);
+    }, []);
+
+    const downloadPy = (taskKey: string, code: string) => {
         const blob = new Blob([code], { type: 'text/plain' });
         const url  = URL.createObjectURL(blob);
         const a    = document.createElement('a');
         a.href     = url;
-        a.download = `test_${taskKey.replace('-', '_').toLowerCase()}.py`;
+        a.download = `test_${taskKey.replace(/-/g, '_').toLowerCase()}.py`;
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -342,28 +352,6 @@ const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, o
 
     // ── Render ────────────────────────────────────────────────────────────────
 
-    const ConditionCard = ({ condition, satisfied, unknown, reason }: { condition: string; satisfied: boolean; unknown: boolean; reason: string }) => (
-        <div className={`rounded-lg border px-3 py-2.5 space-y-1 ${
-            unknown    ? 'bg-yellow-500/8 border-yellow-500/20'
-            : satisfied ? 'bg-green-500/8 border-green-500/20'
-            : 'bg-red-500/8 border-red-500/20'
-        }`}>
-            <div className="flex items-start space-x-2">
-                {unknown
-                    ? <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 mt-0.5" />
-                    : satisfied
-                        ? <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0 mt-0.5" />
-                        : <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0 mt-0.5" />
-                }
-                <p className="text-xs font-medium text-white leading-snug">{condition}</p>
-            </div>
-            <p className={`text-[11px] ml-5 font-semibold ${unknown ? 'text-yellow-400' : satisfied ? 'text-green-400' : 'text-red-400'}`}>
-                {unknown ? 'Unknown' : satisfied ? 'Satisfied' : 'Not Satisfied'}
-            </p>
-            {reason && <p className="text-[11px] ml-5 text-slate-400 leading-snug">{reason}</p>}
-        </div>
-    );
-
     return (
         <div
             ref={chatContainerRef}
@@ -499,15 +487,16 @@ const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, o
                                 activeProject={activeProject}
                                 onSelectRepo={handleDashboardSelectRepo}
                                 onJiraConnected={handleDashboardJiraConnected}
-                                onSimulateResult={handleSimulateResult}
-                                onOpenAIChat={() => setShowAIChat(true)}
+                                onOpenAIChat={() => { setShowAIChat(true); setPanelTab('ai_chat'); }}
+                                onEvaluateResult={handleEvaluateResult}
+                                onGenerateResult={handleGenerateResult}
                             />
                         </div>
                     )}
                 </div>
             </div>
 
-            {/* ── Right panel (AI Chat + Test Results tabs) ────────────────── */}
+            {/* ── Right panel (AI Chat + Evaluate + Generate tabs) ─────────── */}
             {showAIChat && aiSessionConfig && (
                 <div className="relative flex flex-col border-l border-white/10 bg-slate-900/50 overflow-hidden min-h-0">
                     {/* Drag handle */}
@@ -518,40 +507,53 @@ const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, o
 
                     {/* Tab bar */}
                     <div className="flex items-center justify-between px-3 pt-2 pb-0 border-b border-white/10 flex-shrink-0">
-                        <div className="flex items-center space-x-1">
+                        <div className="flex items-center space-x-1 overflow-x-auto">
+                            {/* AI Chat tab */}
                             <button
-                                onClick={() => setActivePanel('chat')}
-                                className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-medium rounded-t-lg border-b-2 transition-all ${
-                                    activePanel === 'chat'
-                                        ? 'border-purple-400 text-white bg-white/5'
-                                        : 'border-transparent text-slate-500 hover:text-slate-300'
+                                onClick={() => setPanelTab('ai_chat')}
+                                className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap rounded-t-lg transition-all ${
+                                    panelTab === 'ai_chat'
+                                        ? 'text-white border-b-2 border-purple-400 bg-white/5'
+                                        : 'text-slate-500 hover:text-slate-300'
                                 }`}
                             >
                                 <MessageSquare className="w-3.5 h-3.5" />
                                 <span>AI Chat</span>
                             </button>
-                            <button
-                                onClick={() => setActivePanel('results')}
-                                className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-medium rounded-t-lg border-b-2 transition-all ${
-                                    activePanel === 'results'
-                                        ? 'border-indigo-400 text-white bg-white/5'
-                                        : 'border-transparent text-slate-500 hover:text-slate-300'
-                                }`}
-                            >
-                                <FlaskConical className="w-3.5 h-3.5" />
-                                <span>Test Results</span>
-                                {lastSimResult && (
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                                        lastSimResult.verdict === 'PASS' ? 'bg-green-500/30 text-green-300'
-                                        : lastSimResult.verdict === 'FAIL' ? 'bg-red-500/30 text-red-300'
-                                        : 'bg-yellow-500/30 text-yellow-300'
-                                    }`}>{lastSimResult.verdict}</span>
-                                )}
-                            </button>
+
+                            {/* Evaluate tab */}
+                            {evaluatePanelData && (
+                                <button
+                                    onClick={() => setPanelTab('evaluate')}
+                                    className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap rounded-t-lg transition-all ${
+                                        panelTab === 'evaluate'
+                                            ? 'text-white border-b-2 border-purple-400 bg-white/5'
+                                            : 'text-slate-500 hover:text-slate-300'
+                                    }`}
+                                >
+                                    <ClipboardList className="w-3.5 h-3.5" />
+                                    <span>Evaluate</span>
+                                </button>
+                            )}
+
+                            {/* Generate Tests tab */}
+                            {generatePanelData && (
+                                <button
+                                    onClick={() => setPanelTab('generate')}
+                                    className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap rounded-t-lg transition-all ${
+                                        panelTab === 'generate'
+                                            ? 'text-white border-b-2 border-indigo-400 bg-white/5'
+                                            : 'text-slate-500 hover:text-slate-300'
+                                    }`}
+                                >
+                                    <FlaskConical className="w-3.5 h-3.5" />
+                                    <span>Generated Tests</span>
+                                </button>
+                            )}
                         </div>
                         <button
                             onClick={() => setShowAIChat(false)}
-                            className="mb-1 p-1 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-all"
+                            className="mb-1 p-1 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-all flex-shrink-0"
                         >
                             <X className="w-4 h-4" />
                         </button>
@@ -559,121 +561,100 @@ const Production: React.FC<ProductionProps> = ({ onBack, jiraConnected = true, o
 
                     {/* Panel content */}
                     <div className="flex-1 overflow-hidden">
-                        {activePanel === 'chat' ? (
+                        {panelTab === 'ai_chat' && (
                             <AIChatStep
                                 config={aiSessionConfig}
                                 onReset={() => setShowAIChat(false)}
                                 compact
+                                productionMode
                             />
-                        ) : (
-                            <div className="scroll-subtle h-full overflow-y-auto p-4 space-y-4">
-                                {!lastSimResult ? (
-                                    <div className="flex flex-col items-center justify-center h-48 text-center space-y-2">
-                                        <FlaskConical className="w-8 h-8 text-slate-600" />
-                                        <p className="text-slate-500 text-xs">No simulation run yet.</p>
-                                        <p className="text-slate-600 text-xs">Click "Simulate Tests" on any task in the gap report.</p>
+                        )}
+
+                        {panelTab === 'evaluate' && evaluatePanelData && (
+                            <div className="h-full overflow-y-auto p-4 space-y-4">
+                                <div>
+                                    <p className="text-[10px] font-mono text-slate-600 mb-1">{evaluatePanelData.taskKey}</p>
+                                    <p className="text-sm font-semibold text-white leading-snug">{evaluatePanelData.summary}</p>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <ClipboardList className="w-3.5 h-3.5 text-slate-400" />
+                                    <span className="text-xs font-medium text-slate-300">Evaluation result</span>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${verdictLabel(evaluatePanelData.result.verdict).cls}`}>
+                                        {verdictLabel(evaluatePanelData.result.verdict).text}
+                                    </span>
+                                </div>
+                                {evaluatePanelData.result.conditions.length > 0 ? (
+                                    <div className="space-y-2">
+                                        {evaluatePanelData.result.conditions.map((cond: EvaluateCondition, i: number) => {
+                                            const pill = conditionPill(cond.status);
+                                            return (
+                                                <div key={i} className="flex items-start space-x-2 bg-white/[0.03] border border-white/8 rounded-lg px-3 py-2">
+                                                    <span className={`flex-shrink-0 mt-0.5 text-[10px] px-1.5 py-0.5 rounded border font-semibold ${pill.cls}`}>
+                                                        {pill.text}
+                                                    </span>
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs text-slate-200 leading-snug">{cond.condition}</p>
+                                                        {cond.reason && (
+                                                            <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{cond.reason}</p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 ) : (
-                                    <>
-                                        {/* Task info */}
-                                        <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2">
-                                            <p className="text-xs text-slate-500 font-mono">{lastSimResult.task_key}</p>
-                                            <p className="text-sm text-white mt-0.5 leading-snug">{lastSimResult.task_summary}</p>
-                                        </div>
+                                    <p className="text-xs text-slate-500">No conditions parsed from the evaluation result.</p>
+                                )}
+                            </div>
+                        )}
 
-                                        {/* Verdict header */}
-                                        <div className={`rounded-xl border px-4 py-3 flex items-center space-x-2 ${
-                                            lastSimResult.verdict === 'PASS' ? 'bg-green-500/10 border-green-500/30'
-                                            : lastSimResult.verdict === 'FAIL' ? 'bg-red-500/10 border-red-500/30'
-                                            : 'bg-yellow-500/10 border-yellow-500/30'
-                                        }`}>
-                                            {lastSimResult.verdict === 'PASS'
-                                                ? <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0" />
-                                                : lastSimResult.verdict === 'FAIL'
-                                                ? <XCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
-                                                : <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
-                                            }
-                                            <span className={`text-sm font-bold ${
-                                                lastSimResult.verdict === 'PASS' ? 'text-green-300'
-                                                : lastSimResult.verdict === 'FAIL' ? 'text-red-300'
-                                                : 'text-yellow-300'
-                                            }`}>
-                                                AI Analysis — {lastSimResult.verdict}
+                        {panelTab === 'generate' && generatePanelData && (
+                            <div className="h-full overflow-y-auto p-4 space-y-4">
+                                <div>
+                                    <p className="text-[10px] font-mono text-slate-600 mb-1">{generatePanelData.taskKey}</p>
+                                    <p className="text-sm font-semibold text-white leading-snug">{generatePanelData.summary}</p>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-2">
+                                        <FlaskConical className="w-3.5 h-3.5 text-indigo-400" />
+                                        <span className="text-xs font-medium text-indigo-300">Generated Tests</span>
+                                    </div>
+                                    {generatePanelData.result.test_code && (
+                                        <button
+                                            onClick={() => downloadPy(generatePanelData.taskKey, generatePanelData.result.test_code)}
+                                            className="flex items-center space-x-1 text-xs px-2 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 hover:border-indigo-400 text-indigo-300 transition-all"
+                                        >
+                                            <Download className="w-3 h-3" />
+                                            <span>Download</span>
+                                        </button>
+                                    )}
+                                </div>
+                                {generatePanelData.result.summary && (
+                                    <p className="text-xs text-slate-300 leading-snug">{generatePanelData.result.summary}</p>
+                                )}
+                                {generatePanelData.result.test_code && (
+                                    <div className="rounded-xl overflow-hidden border border-white/10">
+                                        <div className="flex items-center px-3 py-1.5 bg-white/5 border-b border-white/10 space-x-2">
+                                            <Code2 className="w-3 h-3 text-indigo-400" />
+                                            <span className="text-[10px] font-mono text-slate-500">
+                                                test_{generatePanelData.taskKey.replace(/-/g, '_').toLowerCase()}.py
                                             </span>
                                         </div>
-
-                                        {/* Condition-by-condition breakdown */}
-                                        <div className="space-y-2">
-                                            {(() => {
-                                                const text = lastSimResult.explanation;
-
-                                                // Try structured Condition: blocks first.
-                                                // slice(1) drops the preamble before the first "- Condition:" marker.
-                                                const structuredBlocks = text.split(/\n\s*-\s+Condition:/i).slice(1).filter(Boolean);
-                                                if (structuredBlocks.length > 0) {
-                                                    return structuredBlocks.map((block, i) => {
-                                                        const condMatch   = block.match(/^([^\n]+)/);
-                                                        const statusMatch = block.match(/Status:\s*(SATISFIED|NOT SATISFIED|INCONCLUSIVE)/i);
-                                                        const reasonMatch = block.match(/Reason:\s*([^\n]+)/i);
-                                                        const condition   = condMatch?.[1]?.trim() ?? `Condition ${i + 1}`;
-                                                        // Only mark as satisfied when the model explicitly says so.
-                                                        // INCONCLUSIVE / unparseable status shows as neutral (unknown=true).
-                                                        const statusRaw   = statusMatch?.[1]?.toUpperCase() ?? 'UNKNOWN';
-                                                        const satisfied   = statusRaw === 'SATISFIED';
-                                                        const unknown     = statusRaw !== 'SATISFIED' && statusRaw !== 'NOT SATISFIED';
-                                                        const reason      = reasonMatch?.[1]?.trim() ?? '';
-                                                        return (
-                                                            <ConditionCard key={i} condition={condition} satisfied={satisfied} unknown={unknown} reason={reason} />
-                                                        );
-                                                    });
-                                                }
-
-                                                // Fallback: split by bullet points / numbered lines — always item-by-item
-                                                const lines = text
-                                                    .split('\n')
-                                                    .map(l => l.replace(/^[\s\-•*\d.]+/, '').trim())
-                                                    .filter(Boolean);
-                                                return lines.map((line, i) => {
-                                                    const satisfied = /(pass|satisf|found|exist|implemented|present|correct)/i.test(line)
-                                                        && !/(not|miss|fail|absent|no |never|lack|empty|undefined|incorrect)/i.test(line);
-                                                    return <ConditionCard key={i} condition={line} satisfied={satisfied} unknown={false} reason="" />;
-                                                });
-                                            })()}
+                                        <div className="overflow-auto bg-black/50">
+                                            <table className="w-full text-xs font-mono leading-5">
+                                                <tbody>
+                                                    {generatePanelData.result.test_code.split('\n').map((line: string, i: number) => (
+                                                        <tr key={i} className="hover:bg-white/[0.03] group">
+                                                            <td className="select-none w-10 text-right pr-3 pl-2 text-slate-700 group-hover:text-slate-500 border-r border-white/5 sticky left-0 bg-black/50">
+                                                                {i + 1}
+                                                            </td>
+                                                            <td className="pl-4 pr-4 text-green-300 whitespace-pre">{line}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
                                         </div>
-
-                                        {/* View Code + Download */}
-                                        {lastSimResult.test_code && (
-                                            <div className="flex items-center space-x-2">
-                                                <button
-                                                    onClick={() => setShowTestCode(v => !v)}
-                                                    className="flex items-center space-x-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 border border-white/10 transition-all"
-                                                >
-                                                    <Code2 className="w-3.5 h-3.5" />
-                                                    <span>{showTestCode ? 'Hide Code' : 'View Code'}</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => downloadTestCode(lastSimResult.task_key, lastSimResult.test_code)}
-                                                    className="flex items-center space-x-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 border border-white/10 transition-all"
-                                                >
-                                                    <Download className="w-3.5 h-3.5" />
-                                                    <span>Download .py</span>
-                                                </button>
-                                            </div>
-                                        )}
-
-                                        {/* Expandable test code */}
-                                        {showTestCode && lastSimResult.test_code && (
-                                            <div>
-                                                <div className="flex items-center space-x-2 mb-1.5">
-                                                    <Code2 className="w-3.5 h-3.5 text-purple-400" />
-                                                    <span className="text-xs text-purple-300 font-medium">Simulated Test Code</span>
-                                                </div>
-                                                <pre className="bg-black/50 border border-white/10 rounded-xl p-3 overflow-x-auto text-xs font-mono text-green-300 leading-relaxed">
-                                                    <code>{lastSimResult.test_code}</code>
-                                                </pre>
-                                            </div>
-                                        )}
-                                    </>
+                                    </div>
                                 )}
                             </div>
                         )}
