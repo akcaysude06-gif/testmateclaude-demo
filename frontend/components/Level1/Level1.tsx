@@ -1,20 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, AlertCircle, Check } from 'lucide-react';
+import { ChevronRight, AlertCircle } from 'lucide-react';
 import CodeDisplay from './CodeDisplay';
-import WhyAutomation from './WhyAutomation';
-import ToolLandscape from './ToolLandscape';
-import WhatNotToAutomate from './WhatNotToAutomate';
-import ScenarioPicker from './ScenarioPicker';
+import GenerateScreen from './GenerateScreen';
 import { apiService } from '../../services/api';
-type Phase = 'why' | 'tools' | 'what-not' | 'generate' | 'results';
-
-const PHASES: { id: Phase; label: string }[] = [
-    { id: 'why',       label: 'Why Automation' },
-    { id: 'tools',     label: 'The Tools' },
-    { id: 'what-not',  label: 'What to Automate' },
-    { id: 'generate',  label: 'See It Live' },
-    { id: 'results',   label: 'Review & Practice' },
-];
 
 interface Level1Props {
     onBack: () => void;
@@ -29,50 +17,7 @@ interface GeneratedCode {
     model: string;
 }
 
-// ── Progress stepper ──────────────────────────────────────────────────────────
-const Stepper: React.FC<{ current: Phase }> = ({ current }) => {
-    const currentIdx = PHASES.findIndex(p => p.id === current);
-    return (
-        <div className="flex items-center mb-10">
-            {PHASES.map((phase, i) => {
-                const done   = i < currentIdx;
-                const active = i === currentIdx;
-                return (
-                    <React.Fragment key={phase.id}>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                            <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${
-                                active ? 'bg-purple-600 border border-purple-500' :
-                                done   ? 'bg-white/10 border border-white/20' :
-                                         'bg-white/5 border border-white/10'
-                            }`}>
-                                {done ? (
-                                    <Check className="w-3 h-3 text-slate-300" />
-                                ) : (
-                                    <span className={`text-xs font-mono leading-none ${active ? 'text-white' : 'text-slate-600'}`}>
-                                        {i + 1}
-                                    </span>
-                                )}
-                            </div>
-                            <span className={`text-xs whitespace-nowrap hidden sm:inline ${
-                                active ? 'text-white' : done ? 'text-slate-500' : 'text-slate-700'
-                            }`}>
-                                {phase.label}
-                            </span>
-                        </div>
-                        {i < PHASES.length - 1 && (
-                            <div className={`flex-1 h-px mx-3 min-w-[12px] ${i < currentIdx ? 'bg-white/20' : 'bg-white/8'}`} />
-                        )}
-                    </React.Fragment>
-                );
-            })}
-        </div>
-    );
-};
-
-// ── Main component ─────────────────────────────────────────────────────────────
 const Level1: React.FC<Level1Props> = ({ onBack }) => {
-    const [phase, setPhase]               = useState<Phase>('why');
-    const [selectedScenarioId, setSelId]  = useState<string | null>(null);
     const [generatedCode, setGenerated]   = useState<GeneratedCode | null>(null);
     const [isGenerating, setGenerating]   = useState(false);
     const [error, setError]               = useState<string | null>(null);
@@ -91,22 +36,12 @@ const Level1: React.FC<Level1Props> = ({ onBack }) => {
         }
     };
 
-    const currentIdx = PHASES.findIndex(p => p.id === phase);
-
-    const handleBack = () => {
-        if (phase === 'why') onBack();
-        else setPhase(PHASES[currentIdx - 1].id);
-    };
-
-    const advance = (next: Phase) => setPhase(next);
-
-    const generateCode = async (id: string, description: string) => {
+    const generateCode = async (description: string) => {
         if (llamaAvailable === false) {
             setError('Llama 3 is not running. Please start Ollama with: ollama serve');
             return;
         }
 
-        setSelId(id);
         setGenerating(true);
         setError(null);
         setGenerated(null);
@@ -114,7 +49,6 @@ const Level1: React.FC<Level1Props> = ({ onBack }) => {
         try {
             const response = await apiService.generateAutomationCode(description);
             setGenerated(response);
-            setPhase('results');
         } catch (err: any) {
             let msg: string;
             if (err.message?.includes('timeout') || err.response?.status === 504) {
@@ -126,7 +60,6 @@ const Level1: React.FC<Level1Props> = ({ onBack }) => {
                 msg = err.response?.data?.detail || err.message || 'Unknown error occurred.';
             }
             setError(msg);
-            setSelId(null);
         } finally {
             setGenerating(false);
         }
@@ -135,58 +68,48 @@ const Level1: React.FC<Level1Props> = ({ onBack }) => {
     const handleReset = () => {
         setGenerated(null);
         setError(null);
-        setSelId(null);
-        setPhase('generate');
     };
 
     return (
         <div style={{ padding: '1.5rem 1.25rem' }}>
         <div className="max-w-[1600px] mx-auto">
-            {/* Header */}
             <button
-                onClick={handleBack}
+                onClick={generatedCode ? handleReset : onBack}
                 className="text-purple-300 hover:text-white mb-6 flex items-center space-x-2 transition-colors"
             >
                 <ChevronRight className="w-4 h-4 transform rotate-180" />
-                <span>{phase === 'why' ? 'Back to levels' : 'Back'}</span>
+                <span>{generatedCode ? 'Back to Generate' : 'Back to levels'}</span>
             </button>
 
-            <div className="flex items-end justify-between mb-6">
+            <div className="flex items-end justify-between mb-8">
                 <div>
                     <p className="text-xs text-slate-500 uppercase tracking-widest font-medium mb-2">Level 1</p>
                     <h1 className="text-3xl font-light text-white tracking-tight">
-                        Introduction to Test Automation
+                        Generate Selenium Code
                     </h1>
                     <p className="text-slate-400 text-sm mt-1">
-                        Learn why it matters, explore the tools, and see Selenium in action.
+                        Describe your test scenario or upload a file — get Selenium code instantly.
                     </p>
                 </div>
 
-                {/* Llama status — only visible on the generate/results phase */}
-                {(phase === 'generate' || phase === 'results') && (
-                    <div className="flex items-center gap-2 pb-1">
-                        {llamaAvailable === null ? (
-                            <div className="w-1.5 h-1.5 bg-slate-500 rounded-full animate-pulse" />
-                        ) : llamaAvailable ? (
-                            <>
-                                <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-pulse" />
-                                <span className="text-slate-400 text-xs">Llama 3 ready</span>
-                            </>
-                        ) : (
-                            <>
-                                <div className="w-1.5 h-1.5 bg-red-400 rounded-full" />
-                                <span className="text-red-400 text-xs">Llama 3 offline</span>
-                            </>
-                        )}
-                    </div>
-                )}
+                <div className="flex items-center gap-2 pb-1">
+                    {llamaAvailable === null ? (
+                        <div className="w-1.5 h-1.5 bg-slate-500 rounded-full animate-pulse" />
+                    ) : llamaAvailable ? (
+                        <>
+                            <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-pulse" />
+                            <span className="text-slate-400 text-xs">Llama 3 ready</span>
+                        </>
+                    ) : (
+                        <>
+                            <div className="w-1.5 h-1.5 bg-red-400 rounded-full" />
+                            <span className="text-red-400 text-xs">Llama 3 offline</span>
+                        </>
+                    )}
+                </div>
             </div>
 
-            {/* Stepper */}
-            <Stepper current={phase} />
-
-            {/* Llama offline warning — generate phase only */}
-            {phase === 'generate' && llamaAvailable === false && (
+            {llamaAvailable === false && !generatedCode && (
                 <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 flex items-start space-x-3">
                     <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
                     <div>
@@ -205,30 +128,14 @@ const Level1: React.FC<Level1Props> = ({ onBack }) => {
                 </div>
             )}
 
-            {/* Phase content */}
-            {phase === 'why' && (
-                <WhyAutomation onContinue={() => advance('tools')} />
-            )}
-
-            {phase === 'tools' && (
-                <ToolLandscape onContinue={() => advance('what-not')} />
-            )}
-
-            {phase === 'what-not' && (
-                <WhatNotToAutomate onContinue={() => advance('generate')} />
-            )}
-
-            {phase === 'generate' && (
-                <ScenarioPicker
-                    onSelect={generateCode}
+            {!generatedCode ? (
+                <GenerateScreen
+                    onGenerate={generateCode}
                     isGenerating={isGenerating}
-                    selectedId={selectedScenarioId}
                     error={error}
                     isLlamaAvailable={llamaAvailable !== false}
                 />
-            )}
-
-            {phase === 'results' && generatedCode && (
+            ) : (
                 <CodeDisplay code={generatedCode} onReset={handleReset} />
             )}
         </div>

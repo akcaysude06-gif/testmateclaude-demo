@@ -1,5 +1,5 @@
 """
-Production Routes — SSE streaming via Llama (Ollama) for all AI actions.
+Production Routes — SSE streaming via Groq for all AI actions.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -9,7 +9,7 @@ from typing import Optional
 from database import get_db
 from services.auth_service import auth_service
 from services.github_service import github_service
-from services.llama_service import llama_service
+from services.groq_service import groq_service
 import asyncio, json
 
 router = APIRouter(prefix="/api/production", tags=["Production"])
@@ -35,43 +35,21 @@ class ClassifyRequest(BaseModel):
 	repo_context: str
 
 
-# ── Llama streaming core ──────────────────────────────────────────────────────
+# ── Groq streaming core ───────────────────────────────────────────────────────
 
-async def _sse_llama(prompt: str, max_tokens: int = 2048):
-	"""Stream tokens from Llama via Ollama's streaming API."""
-	import requests
-	from config.settings import settings
-
+async def _sse_groq(prompt: str, max_tokens: int = 2048):
+	"""Stream tokens from Groq API."""
 	loop = asyncio.get_event_loop()
 	queue: asyncio.Queue = asyncio.Queue()
 	_DONE = object()
 
 	def _run():
 		try:
-			resp = requests.post(
-				settings.LLAMA_API_URL,
-				json={
-					"model":  settings.LLAMA_MODEL,
-					"prompt": prompt,
-					"stream": True,
-					"options": {"temperature": 0.7, "num_predict": max_tokens},
-				},
-				stream=True,
-				timeout=120,
-			)
-			resp.raise_for_status()
-			for line in resp.iter_lines():
-				if not line:
-					continue
-				try:
-					chunk = json.loads(line)
-					token = chunk.get("response", "")
-					if token:
-						loop.call_soon_threadsafe(queue.put_nowait, token)
-					if chunk.get("done"):
-						break
-				except json.JSONDecodeError:
-					continue
+			text = groq_service.generate_text(prompt, max_tokens=max_tokens)
+			# Groq doesn't stream per-token via this path; send the full response
+			# in word-sized chunks so the UI still animates naturally.
+			for word in text.split(" "):
+				loop.call_soon_threadsafe(queue.put_nowait, word + " ")
 		except Exception as e:
 			loop.call_soon_threadsafe(queue.put_nowait, f"\n[Error: {str(e)}]")
 		finally:
@@ -90,7 +68,7 @@ async def _sse_llama(prompt: str, max_tokens: int = 2048):
 
 def _resp(prompt: str, max_tokens: int = 2048):
 	return StreamingResponse(
-		_sse_llama(prompt, max_tokens),
+		_sse_groq(prompt, max_tokens),
 		media_type="text/event-stream",
 		headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
 	)
@@ -150,7 +128,7 @@ async def get_repo_tree(owner: str, repo: str,
 	except Exception as e: raise HTTPException(500, str(e))
 
 
-# ── Classify endpoint (Llama — single word, keep cheap) ──────────────────────
+# ── Classify endpoint ─────────────────────────────────────────────────────────
 
 @router.post("/classify")
 async def classify_project(request: ClassifyRequest):
@@ -162,9 +140,7 @@ async def classify_project(request: ClassifyRequest):
 		f"Reply with a single word only: test or dev"
 	)
 	loop = asyncio.get_event_loop()
-	result = await loop.run_in_executor(
-		None, llama_service.generate_text, prompt, 0.0, 5
-	)
+	result = await loop.run_in_executor(None, groq_service.generate_text, prompt, 5)
 	label = "test" if "test" in result.strip().lower() else "dev"
 	return {"type": label}
 

@@ -43,6 +43,7 @@ class SimulateTestsRequest(BaseModel):
     task_summary:        str
     acceptance_criteria: str
     source_files:        List[str] = []
+    test_files:          List[str] = []
     repo_owner:          str
     repo_name:           str
 
@@ -424,24 +425,23 @@ async def simulate_tests_for_gap(
     token = authorization.removeprefix("Bearer ").strip()
     user = auth_service.get_current_user(db, token)
 
-    # Fetch content of each source file from GitHub (cap at 5)
-    files_with_content: List[dict] = []
-    for file_path in request.source_files[:5]:
+    async def _fetch(path: str) -> dict:
         try:
             raw = await github_service.get_file_content(
                 user.github_access_token,
                 request.repo_owner,
                 request.repo_name,
-                file_path,
+                path,
             )
-            content = raw if isinstance(raw, str) else raw.get("content", "")
-            files_with_content.append({"path": file_path, "content": content})
+            return {"path": path, "content": raw if isinstance(raw, str) else raw.get("content", "")}
         except Exception as e:
-            logger.warning("Could not fetch source file %s: %s", file_path, e)
-            files_with_content.append({
-                "path":    file_path,
-                "content": "# [File could not be fetched — treat as unavailable]",
-            })
+            logger.warning("Could not fetch file %s: %s", path, e)
+            return {"path": path, "content": "# [File could not be fetched — treat as unavailable]"}
+
+    source_results, test_results = await asyncio.gather(
+        asyncio.gather(*[_fetch(p) for p in request.source_files[:5]]),
+        asyncio.gather(*[_fetch(p) for p in request.test_files[:5]]),
+    )
 
     loop   = asyncio.get_running_loop()
     result = await loop.run_in_executor(
@@ -450,7 +450,8 @@ async def simulate_tests_for_gap(
         request.task_summary,
         request.acceptance_criteria,
         request.gap_type,
-        files_with_content,
+        list(source_results),
+        list(test_results),
     )
 
     return result
@@ -465,23 +466,25 @@ async def generate_tests_for_gap(
     token = authorization.removeprefix("Bearer ").strip()
     user = auth_service.get_current_user(db, token)
 
-    files_with_content: List[dict] = []
-    for file_path in request.source_files[:5]:
+    async def _fetch(path: str) -> dict:
         try:
             raw = await github_service.get_file_content(
                 user.github_access_token,
                 request.repo_owner,
                 request.repo_name,
-                file_path,
+                path,
             )
-            content = raw if isinstance(raw, str) else raw.get("content", "")
-            files_with_content.append({"path": file_path, "content": content})
+            return {"path": path, "content": raw if isinstance(raw, str) else raw.get("content", "")}
         except Exception as e:
-            logger.warning("Could not fetch source file %s: %s", file_path, e)
-            files_with_content.append({
-                "path":    file_path,
-                "content": "# [File could not be fetched]",
-            })
+            logger.warning("Could not fetch file %s: %s", path, e)
+            return {"path": path, "content": "# [File could not be fetched]"}
+
+    source_results, test_results = await asyncio.gather(
+        asyncio.gather(*[_fetch(p) for p in request.source_files[:5]]),
+        asyncio.gather(*[_fetch(p) for p in request.test_files[:5]]),
+    )
+    files_with_content      = list(source_results)
+    test_files_with_content = list(test_results)
 
     loop   = asyncio.get_running_loop()
     result = await loop.run_in_executor(
@@ -491,6 +494,7 @@ async def generate_tests_for_gap(
         request.acceptance_criteria,
         request.gap_type,
         files_with_content,
+        test_files_with_content,
     )
 
     return result

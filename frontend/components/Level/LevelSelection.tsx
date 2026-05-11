@@ -37,7 +37,7 @@ const LevelSelection: React.FC<LevelSelectionProps> = ({ onSelectLevel, onBack }
                         </div>
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-widest text-blue-400/80 mb-0.5">Start here</p>
-                            <h3 className="text-xl font-bold text-white leading-tight">Learn Manual Testing Basics</h3>
+                            <h3 className="text-xl font-bold text-white leading-tight">Level 0</h3>
                         </div>
                     </div>
                     <p className="text-purple-200/80 text-sm leading-relaxed mb-5">
@@ -66,7 +66,7 @@ const LevelSelection: React.FC<LevelSelectionProps> = ({ onSelectLevel, onBack }
                         </div>
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-widest text-purple-400/80 mb-0.5">Next step</p>
-                            <h3 className="text-xl font-bold text-white leading-tight">Learn Automation Basics</h3>
+                            <h3 className="text-xl font-bold text-white leading-tight">Level 1</h3>
                         </div>
                     </div>
                     <p className="text-purple-200/80 text-sm leading-relaxed mb-5">

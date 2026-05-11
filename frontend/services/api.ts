@@ -200,6 +200,7 @@ class ApiService {
         sourceFiles:        string[],
         repoOwner:          string,
         repoName:           string,
+        testFiles:          string[] = [],
     ): Promise<{ verdict: string; explanation: string; test_code: string; gap_type: string; model: string }> {
         return (await apiClient.post(
             '/api/production/v2/gaps/simulate-tests',
@@ -209,6 +210,7 @@ class ApiService {
                 task_summary:        taskSummary,
                 acceptance_criteria: acceptanceCriteria,
                 source_files:        sourceFiles,
+                test_files:          testFiles,
                 repo_owner:          repoOwner,
                 repo_name:           repoName,
             },
@@ -224,6 +226,7 @@ class ApiService {
         sourceFiles:        string[],
         repoOwner:          string,
         repoName:           string,
+        testFiles:          string[] = [],
     ): Promise<{ test_code: string; summary: string; main_points: string[]; gap_type: string; model: string }> {
         return (await apiClient.post(
             '/api/production/v2/gaps/generate-tests',
@@ -233,6 +236,7 @@ class ApiService {
                 task_summary:        taskSummary,
                 acceptance_criteria: acceptanceCriteria,
                 source_files:        sourceFiles,
+                test_files:          testFiles,
                 repo_owner:          repoOwner,
                 repo_name:           repoName,
             },

@@ -3,9 +3,8 @@ Level 1 Routes - Guided Practice with AI-Generated Code
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from services.llama_service import llama_service
+from services.groq_service import groq_service as llama_service
 import asyncio
-from services.llama_service import llama_service
 
 router = APIRouter(prefix="/api/level1", tags=["Level 1"])
 
@@ -55,7 +54,7 @@ async def generate_automation_code(request: GenerateCodeRequest):
 			steps=result["steps"],
 			line_explanations=result.get("line_explanations", {}),
 			language=result["language"],
-			model="llama3"
+			model="groq/llama-3.3-70b"
 		)
 
 	except HTTPException:
@@ -103,14 +102,10 @@ async def get_test_examples():
 	}
 
 @router.get("/health")
-async def check_llama_health():
-	"""
-	Check if Llama 3 is available and ready
-	"""
+async def check_ai_health():
 	is_available = llama_service.check_availability()
-
 	return {
-		"llama3_available": is_available,
+		"groq_available": is_available,
 		"status": "ready" if is_available else "unavailable",
-		"message": "Llama 3 is ready" if is_available else "Please start Ollama with: ollama serve"
+		"message": "Groq AI is ready" if is_available else "Groq API key not configured"
 	}

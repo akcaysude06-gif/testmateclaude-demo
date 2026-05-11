@@ -238,35 +238,133 @@ EXPLANATION:
         task_summary:        str,
         acceptance_criteria: str,
         gap_type:            str,
-        source_files:        list[dict],  # [{"path": str, "content": str}]
+        source_files:        list[dict],       # [{"path": str, "content": str}]
+        test_files:          list[dict] = None, # [{"path": str, "content": str}]
     ) -> dict:
         """
         Generate test code internally, reason about source files, return a
         structured pass/fail/inconclusive verdict + explanation.  Test code is
         returned so the frontend can offer a 'View Code' / download option.
         """
-        gap_context = {
-            "not_started": "WARNING: No implementation files were found for this task. The task appears to have no code written yet.",
-            "untested":    "NOTE: Source files exist but no dedicated test files were found for this task.",
-            "complete":    "NOTE: Both source files and test files appear to exist for this task.",
-        }.get(gap_type, "")
+        test_files    = test_files or []
+        has_source    = bool(source_files)
+        has_tests     = bool(test_files)
 
         removal_terms = ["remove", "delete", "hide", "disable", "drop", "eliminate", "strip", "clear"]
         is_removal    = any(term in task_summary.lower() for term in removal_terms)
-        has_files     = bool(source_files)
+        ac_section    = f"ACCEPTANCE CRITERIA:\n{acceptance_criteria}" if acceptance_criteria and acceptance_criteria.strip() else ""
+
+        # ── untested: no test files found → the gap IS the missing tests, not the implementation.
+        # Evaluating source code here always returns PASS for done tasks (implementation exists),
+        # which is the wrong answer. Evaluate test coverage instead.
+        if gap_type == "untested":
+            if not has_tests:
+                # No test files at all — this is unambiguously a test coverage gap.
+                return {
+                    "verdict":     "FAIL",
+                    "explanation": (
+                        "- Condition: Automated tests exist for this task\n"
+                        "  Status: NOT SATISFIED\n"
+                        "  Reason: No test files were found that cover this task. "
+                        "The implementation may be complete but test coverage is missing."
+                    ),
+                    "test_code":   "",
+                    "gap_type":    gap_type,
+                    "model":       self.model,
+                }
+            # Test files exist — evaluate whether they actually cover the AC
+            test_snippets = []
+            for f in test_files[:5]:
+                content = (f.get("content") or "")[:3000]
+                test_snippets.append(f"### {f['path']}\n```\n{content}\n```")
+            test_block = "\n\n".join(test_snippets)
+
+            prompt = f"""You are a senior QA engineer auditing test coverage.
+
+JIRA TASK: {task_summary}
+{ac_section}
+NOTE: Implementation files exist. Your job is to check whether the TEST FILES below actually cover the task's requirements — NOT whether the implementation exists.
+
+TEST FILES:
+{test_block}
+
+Your job:
+1. Derive testable conditions from the task and acceptance criteria (minimum 2-3).
+2. For each condition, check whether the test files contain tests that verify it.
+3. VERDICT is PASS only if every condition has meaningful test coverage. FAIL if any condition is untested. INCONCLUSIVE if the test files are unreadable or empty.
+
+You MUST format your response EXACTLY like this:
+
+VERDICT: PASS
+(or FAIL or INCONCLUSIVE)
+
+EXPLANATION:
+- Condition: [specific testable condition]
+  Status: SATISFIED
+  Reason: [one sentence citing the specific test function or assertion that covers it]
+
+- Condition: [next condition]
+  Status: NOT SATISFIED
+  Reason: [one sentence explaining what test is missing]
+
+```python
+[Suggested test code for any missing conditions, or empty if all covered]
+```
+
+Do NOT evaluate the implementation. Only evaluate whether tests cover each condition.
+Never write "Not specified" or "No acceptance criteria" as a condition.
+"""
+            try:
+                response = self.generate_text(prompt, max_tokens=5000)
+                verdict = "FAIL"
+                if "VERDICT: PASS" in response.upper():
+                    verdict = "PASS"
+                elif "VERDICT: INCONCLUSIVE" in response.upper():
+                    verdict = "INCONCLUSIVE"
+
+                explanation = ""
+                if "EXPLANATION:" in response:
+                    exp_start = response.find("EXPLANATION:") + 12
+                    exp_end   = response.find("```", exp_start)
+                    explanation = response[exp_start:exp_end].strip() if exp_end != -1 else response[exp_start:].strip()
+
+                code = ""
+                last_py = response.rfind("```python")
+                if last_py != -1:
+                    code_start = last_py + 9
+                    code_end   = response.find("```", code_start)
+                    if code_end != -1:
+                        code = response[code_start:code_end].strip()
+
+                return {
+                    "verdict":     verdict,
+                    "explanation": explanation or "AI analysis complete.",
+                    "test_code":   code,
+                    "gap_type":    gap_type,
+                    "model":       self.model,
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to simulate tests: {str(e)}")
+
+        # ── not_started / complete: original source-file evaluation logic ────────
+        gap_context = {
+            "not_started": "WARNING: No implementation files were found for this task. The task appears to have no code written yet.",
+            "complete":    "NOTE: Both source files and test files appear to exist for this task.",
+        }.get(gap_type, "")
 
         files_block = ""
-        if has_files:
+        if has_source:
             snippets = []
-            for f in source_files[:5]:  # cap at 5 files to stay within token limits
-                content = (f.get("content") or "")[:3000]  # cap per file
+            for f in source_files[:5]:
+                content = (f.get("content") or "")[:3000]
                 snippets.append(f"### {f['path']}\n```\n{content}\n```")
             files_block = "\n\n".join(snippets)
         else:
             files_block = "(No source files available)"
 
-        # Build task-specific guidance
-        if not has_files and is_removal:
+        if not has_source and is_removal:
             task_note = (
                 "IMPORTANT — REMOVAL TASK WITH NO SOURCE FILES:\n"
                 "This task requires removing or deleting something. "
@@ -274,7 +372,7 @@ EXPLANATION:
                 "mark that condition SATISFIED and use verdict PASS. "
                 "Only mark NOT SATISFIED if the task also requires something to be KEPT that is missing."
             )
-        elif not has_files:
+        elif not has_source:
             task_note = (
                 "IMPORTANT — NO SOURCE FILES AVAILABLE:\n"
                 "Without source files you cannot verify any implementation detail. "
@@ -288,8 +386,6 @@ EXPLANATION:
             )
         else:
             task_note = ""
-
-        ac_section = f"ACCEPTANCE CRITERIA:\n{acceptance_criteria}" if acceptance_criteria and acceptance_criteria.strip() else ""
 
         prompt = f"""You are a senior QA engineer performing an AI-based test simulation.
 
@@ -342,7 +438,7 @@ Never write "Not specified" or "No acceptance criteria" as a condition.
             response = self.generate_text(prompt, max_tokens=5000)
 
             # Parse verdict
-            verdict = "INCONCLUSIVE" if not has_files else "FAIL"
+            verdict = "INCONCLUSIVE" if not has_source else "FAIL"
             if "VERDICT: PASS" in response.upper():
                 verdict = "PASS"
             elif "VERDICT: FAIL" in response.upper():
@@ -386,6 +482,7 @@ Never write "Not specified" or "No acceptance criteria" as a condition.
         acceptance_criteria: str,
         gap_type:            str,
         source_files:        list[dict],
+        existing_test_files: list[dict] | None = None,
     ) -> dict:
         """
         Generate an actual test file for a missing/untested task.
@@ -409,14 +506,33 @@ Never write "Not specified" or "No acceptance criteria" as a condition.
 
         ac_section = f"ACCEPTANCE CRITERIA:\n{acceptance_criteria}" if acceptance_criteria and acceptance_criteria.strip() else ""
 
+        # For untested tasks: include existing tests and instruct AI to cover only the gaps
+        existing_block = ""
+        gap_instruction = ""
+        if gap_type == "untested" and existing_test_files:
+            snippets = []
+            for f in existing_test_files[:5]:
+                content = (f.get("content") or "")[:2000]
+                snippets.append(f"### {f['path']}\n```\n{content}\n```")
+            existing_block = "\n\n".join(snippets)
+            gap_instruction = (
+                "\nIMPORTANT: Existing tests are provided above. "
+                "Do NOT re-test anything already covered by them. "
+                "Identify which acceptance criteria or behaviours are NOT tested yet, "
+                "and generate tests ONLY for those missing parts."
+            )
+
+        existing_section = f"\nEXISTING TESTS (already covered — do not duplicate):\n{existing_block}" if existing_block else ""
+
         prompt = f"""You are a senior QA engineer. Generate a complete, production-ready pytest test file for the following Jira task.
 
 JIRA TASK: {task_summary}
 {ac_section}
 IMPLEMENTATION STATUS: {gap_context}
-
+{existing_section}
 SOURCE FILES:
 {files_block}
+{gap_instruction}
 
 Your response MUST follow this EXACT format:
 
@@ -430,7 +546,7 @@ MAIN POINTS:
 (add more points as needed, minimum 3)
 
 ```python
-[Complete pytest test code that tests the task described above. Include imports, fixtures, and at least 3 test functions. Use realistic assertions. If no source files are available, generate tests based on the task description using mocks or stubs.]
+[Complete pytest test code. Include imports, fixtures, and at least 3 test functions. Use realistic assertions. If no source files are available, generate tests based on the task description using mocks or stubs.]
 ```
 
 Do NOT add any extra prose. Only the three sections above."""
@@ -528,6 +644,22 @@ Answer YES only if the test file content clearly exercises the task's functional
         except Exception:
             # On any error, do not downgrade — treat as covered to avoid false negatives
             return {"covered": True, "reason": "Verification unavailable"}
+
+    def evaluate_manual_test(self, test_steps: str, scenario: str = "Login Form", url: str = "") -> str:
+        prompt = (
+            f"Test engineer. Review this manual test.\n"
+            f"Scenario: {scenario} URL: {url}\n{test_steps}\n\n"
+            f"Feedback (max 100 words): gaps, quality, suggestions. Bullets."
+        )
+        return self.generate_text(prompt, max_tokens=250)
+
+    def answer_automation_question(self, question: str, context: str = "") -> str:
+        prompt = (
+            f"Selenium Python expert. {context or ''}\n"
+            f"Q: {question}\n"
+            f"Answer max 150 words. Short code if needed."
+        )
+        return self.generate_text(prompt, max_tokens=300)
 
     def check_availability(self) -> bool:
         return self.client is not None

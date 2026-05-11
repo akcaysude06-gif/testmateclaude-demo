@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config.settings import settings
 from routes import level0, level1, production, auth, production_v2, jira
 from database import init_db
-from services.llama_service import llama_service
+from services.groq_service import groq_service
 # Initialize database
 init_db()
 
@@ -45,11 +45,11 @@ async def root():
 
 @app.get("/api/health")
 async def health_check():
-    llama_status = "available" if llama_service.check_availability() else "unavailable"
+    groq_status = "available" if groq_service.check_availability() else "unavailable"
     return {
-        "status": "healthy" if llama_status == "available" else "partial",
+        "status": "healthy" if groq_status == "available" else "partial",
         "services": {
-            "llama3": llama_status
+            "groq": groq_status
         },
         "endpoints": {
             "auth": "/api/auth/github/login",

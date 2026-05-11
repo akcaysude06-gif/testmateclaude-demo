@@ -456,6 +456,7 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onEv
                 effectiveSourceFiles(gap),
                 repoOwner,
                 repoName,
+                gap.test_files,
             );
             const evalResult: EvaluateResult = {
                 verdict:    res.verdict,
@@ -490,6 +491,7 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onEv
                 effectiveSourceFiles(gap),
                 repoOwner,
                 repoName,
+                gap.gap_type === 'untested' ? gap.test_files : [],
             );
             const genResult: GenerateResult = {
                 test_code:   res.test_code,
@@ -675,6 +677,7 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onEv
                             const evalResult     = evaluateResults[gap.task_key] ?? null;
                             const genResult      = generateResults[gap.task_key] ?? null;
                             const canGenerate    = gap.gap_type === 'not_started' || gap.gap_type === 'untested';
+                            const effectiveBadge = evalResult ? verdictLabel(evalResult.verdict) : null;
 
                             return (
                                 <div
@@ -696,10 +699,16 @@ const GapReport: React.FC<GapReportProps> = ({ repoOwner, repoName, onSkip, onEv
                                             <span className="text-xs text-slate-400 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full flex-shrink-0 hidden sm:block">
                                                 {gap.status}
                                             </span>
-                                            <span className={`flex items-center space-x-1 text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${m.badge}`}>
-                                                {m.icon}
-                                                <span>{m.label}</span>
-                                            </span>
+                                            {effectiveBadge ? (
+                                                <span className={`flex items-center space-x-1 text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${effectiveBadge.cls}`}>
+                                                    <span>{effectiveBadge.text}</span>
+                                                </span>
+                                            ) : (
+                                                <span className={`flex items-center space-x-1 text-xs px-2 py-0.5 rounded-full border flex-shrink-0 ${m.badge}`}>
+                                                    {m.icon}
+                                                    <span>{m.label}</span>
+                                                </span>
+                                            )}
                                         </button>
 
                                         {/* Action buttons */}
