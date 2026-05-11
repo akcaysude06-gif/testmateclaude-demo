@@ -62,7 +62,7 @@ Visible navigation: a back button (top-left) that steps back through phases; on 
 Phases in order: Why Automation → The Tools → What Not to Automate → See It Live → Review & Practice.
 To reach a different mode the user must first navigate back to the Level Selection screen, then click "Back to modes".`;
 
-            return `CURRENT PAGE: Level Selection screen (inside Guided Learning mode).
+            return `CURRENT PAGE: Level Selection screen (inside Guided Mode).
 Visible navigation: a "Back to modes" button (top-left) that returns to the Home / Mode Selection screen.
 Two level cards are shown: Level 0 (Manual Testing Fundamentals) and Level 1 (Introduction to Test Automation).
 To switch to Production Mode: click "Back to modes" (top-left), then click the "Production Mode" card on the Home screen.`;
@@ -70,7 +70,7 @@ To switch to Production Mode: click "Back to modes" (top-left), then click the "
 
         return `CURRENT PAGE: Home / Mode Selection screen.
 No back button — this is the top level of the app. The TestMate logo in the navbar also stays on this screen.
-Two mode cards are shown: "Guided Learning" (click to go to Level Selection) and "Production Mode" (click to enter Production Mode directly).`;
+Two mode cards are shown: "Guided Mode" (click to go to Level Selection) and "Production Mode" (click to enter Production Mode directly).`;
     };
 
     const refreshJiraStatus = useCallback(async () => {
@@ -119,9 +119,15 @@ Two mode cards are shown: "Guided Learning" (click to go to Level Selection) and
 
                     try {
                         const prefs = JSON.parse(localStorage.getItem('testmate_user_preferences') || '{}');
-                        if (prefs.alwaysOpenProduction && !window.location.hash) {
-                            setCurrentMode('production');
-                            window.location.hash = 'production';
+                        const defaultMode = prefs.defaultMode ?? (prefs.alwaysOpenProduction ? 'production' : null);
+                        if (defaultMode && !window.location.hash) {
+                            if (defaultMode === 'production') {
+                                setCurrentMode('production');
+                                window.location.hash = 'production';
+                            } else if (defaultMode === 'guided') {
+                                setCurrentMode('guided');
+                                window.location.hash = 'guided';
+                            }
                         }
                     } catch {
                         // ignore malformed prefs

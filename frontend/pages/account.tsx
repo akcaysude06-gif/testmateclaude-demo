@@ -89,17 +89,20 @@ export default function AccountPage() {
 
         // Apply saved color theme so CSS variables are set on this standalone page
         const THEMES = [
-            { id: 'lavender',   from: '#2e2440', via: '#4a3060', accent: '#c4b5fd' },
-            { id: 'butter',     from: '#4a4520', via: '#7a6e30', accent: '#fde68a' },
-            { id: 'pink',       from: '#2e1a28', via: '#5c3050', accent: '#fbc8e0' },
-            { id: 'periwinkle', from: '#1a2235', via: '#1e3050', accent: '#a5b4fc' },
+            { id: 'ocean',    from: '#0a1628', via: '#0d2d4a', accent: '#22d3ee' },
+            { id: 'sunset',   from: '#2d1a1a', via: '#5c2d2d', accent: '#fb7185' },
+            { id: 'forest',   from: '#0f2318', via: '#1a3d2b', accent: '#4ade80' },
+            { id: 'midnight', from: '#0d0818', via: '#1a0d35', accent: '#818cf8' },
         ];
-        const saved = localStorage.getItem('testmate_color_theme') || 'lavender';
-        const theme = THEMES.find(t => t.id === saved) || THEMES[0];
+        const LEGACY: Record<string, string> = { lavender: 'midnight', butter: 'sunset', pink: 'sunset', periwinkle: 'ocean' };
+        const raw = localStorage.getItem('testmate_color_theme') || 'ocean';
+        const savedId = LEGACY[raw] ?? (THEMES.find(t => t.id === raw) ? raw : 'ocean');
+        if (savedId !== raw) localStorage.setItem('testmate_color_theme', savedId);
+        const theme = THEMES.find(t => t.id === savedId) || THEMES[0];
         document.documentElement.style.setProperty('--theme-from',   theme.from);
         document.documentElement.style.setProperty('--theme-via',    theme.via);
         document.documentElement.style.setProperty('--theme-accent', theme.accent);
-        document.body.setAttribute('data-theme', saved);
+        document.body.setAttribute('data-theme', savedId);
     }, []);
 
     useEffect(() => {

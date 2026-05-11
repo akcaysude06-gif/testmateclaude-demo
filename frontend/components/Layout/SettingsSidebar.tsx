@@ -118,7 +118,7 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ onOpenBeginnerMode, o
                                                transition-all text-purple-300 hover:text-purple-200 text-sm"
                                 >
                                     <BookOpen className="w-4 h-4 flex-shrink-0" />
-                                    <span>Open &apos;New to Testing&apos;</span>
+                                    <span>Open &apos;Guided Mode&apos;</span>
                                 </button>
                             )}
                             {(currentMode === null || currentMode === 'guided') && (

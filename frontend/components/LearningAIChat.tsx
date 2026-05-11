@@ -12,10 +12,10 @@ const TESTMATE_SYSTEM_CONTEXT = `You are an AI assistant built into TestMate, a 
 The app is a single page. The user always sees this AI chat panel on the right side.
 
 ### Top-level structure
-- **Home / Mode Selection screen**: Two cards — "Guided Learning" and "Production Mode". Click either card to enter that mode. The TestMate logo in the top-left navbar always navigates back to this screen from anywhere.
+- **Home / Mode Selection screen**: Two cards — "Guided Mode" and "Production Mode". Click either card to enter that mode. The TestMate logo in the top-left navbar always navigates back to this screen from anywhere.
 
-### Guided Learning mode
-Entered by clicking "Guided Learning" on the Home screen.
+### Guided Mode
+Entered by clicking "Guided Mode" on the Home screen.
 - First lands on the **Level Selection screen**: two cards — "Level 0" and "Level 1". A "Back to modes" button (top-left) returns to the Home screen.
 - Clicking a level card enters that level. Inside any level, a back arrow button (top-left, labelled "Back") returns to the Level Selection screen.
 

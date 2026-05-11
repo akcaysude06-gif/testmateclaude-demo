@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { LogOut, Sparkles, User, Palette, Check, Settings, LayoutGrid, Link2, CheckCircle2, ChevronDown } from 'lucide-react';
 
 const THEMES = [
-    { id: 'lavender',   label: 'Lavender',   from: '#2e2440', via: '#4a3060', accent: '#c4b5fd' },
-    { id: 'butter',     label: 'Butter',     from: '#4a4520', via: '#7a6e30', accent: '#fde68a' },
-    { id: 'pink',       label: 'Pink',       from: '#2e1a28', via: '#5c3050', accent: '#fbc8e0' },
-    { id: 'periwinkle', label: 'Periwinkle', from: '#1a2235', via: '#1e3050', accent: '#a5b4fc' },
+    { id: 'ocean',    label: 'Ocean',    from: '#0a1628', via: '#0d2d4a', accent: '#22d3ee' },
+    { id: 'sunset',   label: 'Sunset',   from: '#2d1a1a', via: '#5c2d2d', accent: '#fb7185' },
+    { id: 'forest',   label: 'Forest',   from: '#0f2318', via: '#1a3d2b', accent: '#4ade80' },
+    { id: 'midnight', label: 'Midnight', from: '#0d0818', via: '#1a0d35', accent: '#818cf8' },
 ];
 
 const THEME_KEY = 'testmate_color_theme';
@@ -31,7 +31,7 @@ interface NavbarProps {
 
 const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick, onSettings, onBackToModes, jiraStatus, onConnectJira, privacyMode }) => {
     const [showConfirm, setShowConfirm] = useState(false);
-    const [activeTheme, setActiveTheme] = useState<string>('lavender');
+    const [activeTheme, setActiveTheme] = useState<string>('ocean');
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [userMenuOpen, setUserMenuOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -42,7 +42,10 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick, onSettings
     const handleCancel = () => setShowConfirm(false);
 
     useEffect(() => {
-        const saved = localStorage.getItem(THEME_KEY) || 'lavender';
+        const LEGACY: Record<string, string> = { lavender: 'midnight', butter: 'sunset', pink: 'sunset', periwinkle: 'ocean' };
+        const raw = localStorage.getItem(THEME_KEY) || 'ocean';
+        const saved = LEGACY[raw] ?? (THEMES.find(t => t.id === raw) ? raw : 'ocean');
+        if (saved !== raw) localStorage.setItem(THEME_KEY, saved);
         setActiveTheme(saved);
         applyTheme(saved);
     }, []);
@@ -94,8 +97,8 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick, onSettings
                                     <Palette className="w-4 h-4" />
                                     <span>Color Theme</span>
                                     <span
-                                        className="w-3 h-3 rounded-full ml-1"
-                                        style={{ background: currentTheme.accent }}
+                                        className="w-3 h-3 rounded-full ml-1 flex-shrink-0"
+                                        style={{ background: `linear-gradient(135deg, ${currentTheme.via}, ${currentTheme.accent})` }}
                                     />
                                 </button>
 
@@ -116,9 +119,9 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout, user, onLogoClick, onSettings
                                                     border: `1px solid ${activeTheme === theme.id ? theme.accent : 'transparent'}`,
                                                 }}
                                             >
-                                                <span
+                                                                <span
                                                     className="w-3 h-3 rounded-full flex-shrink-0"
-                                                    style={{ background: theme.accent }}
+                                                    style={{ background: `linear-gradient(135deg, ${theme.via}, ${theme.accent})` }}
                                                 />
                                                 {theme.label}
                                                 {activeTheme === theme.id && (

@@ -86,6 +86,23 @@ class ImplementationGap(Base):
 	created_at      = Column(DateTime, default=datetime.utcnow)
 
 
+class AutomationLibraryEntry(Base):
+	"""Tracks Jira tickets created from Level 1 code generation."""
+	__tablename__ = "automation_library_entries"
+
+	id                  = Column(Integer, primary_key=True, index=True)
+	user_id             = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+	jira_integration_id = Column(Integer, ForeignKey("jira_integrations.id"), nullable=True)
+	jira_ticket_key     = Column(String, nullable=False)          # e.g. PROJ-123
+	jira_ticket_url     = Column(String, nullable=False)
+	title               = Column(String, nullable=False)
+	manual_description  = Column(Text, nullable=True)             # original test steps
+	generated_code      = Column(Text, nullable=True)             # selenium code
+	jira_status         = Column(String, default="To Do")
+	created_at          = Column(DateTime, default=datetime.utcnow)
+	updated_at          = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # Create all tables
 def init_db():
 	Base.metadata.create_all(bind=engine)

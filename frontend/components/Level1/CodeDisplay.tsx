@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Download, Copy, Check, Code, RotateCcw, MousePointerClick } from 'lucide-react';
+import JiraTicketPrompt, { isJiraPromptDisabled } from './JiraTicketPrompt';
 
 interface CodeDisplayProps {
+    testDescription?: string;
     code: {
         code: string;
         explanation: string;
@@ -11,6 +13,7 @@ interface CodeDisplayProps {
         model: string;
     };
     onReset: () => void;
+    onTicketCreated?: (ticketKey: string, ticketUrl: string) => void;
 }
 
 // ── Mini quiz ──────────────────────────────────────────────────────────────────
@@ -110,7 +113,7 @@ const MiniQuiz: React.FC = () => {
 };
 
 // ── Main component ─────────────────────────────────────────────────────────────
-const CodeDisplay: React.FC<CodeDisplayProps> = ({ code, onReset }) => {
+const CodeDisplay: React.FC<CodeDisplayProps> = ({ code, onReset, testDescription = '', onTicketCreated }) => {
     const [copied, setCopied]       = useState(false);
     const [hoveredLine, setHovered] = useState<number | null>(null);
     const [pinnedLine, setPinned]   = useState<number | null>(null);
@@ -317,6 +320,15 @@ const CodeDisplay: React.FC<CodeDisplayProps> = ({ code, onReset }) => {
 
             {/* ── Mini quiz ─────────────────────────────────────────────────── */}
             <MiniQuiz />
+
+            {/* ── Jira automation library prompt ────────────────────────────── */}
+            {!isJiraPromptDisabled() && (
+                <JiraTicketPrompt
+                    testDescription={testDescription}
+                    generatedCode={code.code}
+                    onTicketCreated={onTicketCreated}
+                />
+            )}
         </div>
     );
 };

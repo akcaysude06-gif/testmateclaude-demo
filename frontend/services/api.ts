@@ -1,6 +1,16 @@
 import axios from 'axios';
 import { authUtils } from '../utils/auth';
 
+export interface AutomationLibraryEntry {
+    id: number;
+    ticket_key: string;
+    ticket_url: string;
+    title: string;
+    jira_status: string;
+    created_at: string;
+    updated_at: string | null;
+}
+
 export interface JiraProject {
     id:         string;
     key:        string;
@@ -70,6 +80,36 @@ class ApiService {
     // ── Level 0 ───────────────────────────────────────────────────────────
     async getLevel0Content(): Promise<any> {
         return (await apiClient.get('/api/level0/content')).data;
+    }
+
+    // ── Level 1 Jira Integration ──────────────────────────────────────────
+    async getLevel1JiraStatus(): Promise<{ configured: boolean; project_key: string | null; email: string | null; instance_url?: string }> {
+        return (await apiClient.get('/api/level1/jira/config-status')).data;
+    }
+
+    async createAutomationTicket(payload: {
+        title: string;
+        manual_description: string;
+        generated_code: string;
+        project_key?: string;
+    }): Promise<{ id: number; ticket_key: string; ticket_url: string; title: string; status: string; created_at: string }> {
+        return (await apiClient.post('/api/level1/jira/create-ticket', payload)).data;
+    }
+
+    async getAutomationLibrary(): Promise<{ entries: AutomationLibraryEntry[]; total: number }> {
+        return (await apiClient.get('/api/level1/jira/library')).data;
+    }
+
+    async syncLibraryStatuses(): Promise<{ synced: number; entries: { id: number; ticket_key: string; jira_status: string }[] }> {
+        return (await apiClient.post('/api/level1/jira/sync-status', {})).data;
+    }
+
+    async completeLevel0Scenario(scenarioId: string, markLevel0Complete = false): Promise<any> {
+        const token = authUtils.getToken();
+        return (await apiClient.post('/api/level0/complete-scenario',
+            { scenario_id: scenarioId, mark_level0_complete: markLevel0Complete },
+            { params: token ? { token } : {} },
+        )).data;
     }
 
     // ── Level 1 ───────────────────────────────────────────────────────────

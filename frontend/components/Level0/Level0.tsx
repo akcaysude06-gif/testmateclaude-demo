@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { ChevronRight, CheckCircle, Lock, Sparkles } from 'lucide-react';
 import { type Scenario, SCENARIOS } from '../../data/scenarios';
+import ManualTestLab from './ManualTestLab';
+import { apiService } from '../../services/api';
 
 interface Level0Props {
     onBack: () => void;
@@ -14,7 +16,13 @@ const Level0: React.FC<Level0Props> = ({ onBack, onAIFeedback }) => {
     const [activeScenario, setActive]        = useState<string | null>(null);
 
     const isUnlocked = (i: number) => i === 0 || completedScenarios.has(SCENARIOS[i - 1].id);
-    const complete   = (id: string) => { setCompleted(p => new Set(p).add(id)); setActive(null); };
+    const complete   = (id: string) => {
+        const next = new Set(completedScenarios).add(id);
+        setCompleted(next);
+        setActive(null);
+        const isAllDone = SCENARIOS.every(s => next.has(s.id));
+        apiService.completeLevel0Scenario(id, isAllDone).catch(() => {/* ignore */});
+    };
 
     const active  = SCENARIOS.find(s => s.id === activeScenario);
     const allDone = completedScenarios.size === SCENARIOS.length;
@@ -2144,117 +2152,26 @@ driver.quit()`,
 // ─── STEP A: MANUAL TEST ────────────────────────────────────────────────────
 
 const ManualStep: React.FC<{ scenario: Scenario; onComplete: () => void; onAIFeedback: (feedback: string) => void }> = ({ scenario, onComplete, onAIFeedback }) => {
-    const [phase, setPhase]   = useState<'intro'|'testing'|'write'|'feedback'|'reflection'>('intro');
-    const [notes, setNotes]   = useState('');
-    const [loading, setLoading] = useState(false);
-    const content               = CONTENT[scenario.id];
+    const [phase, setPhase]   = useState<'lab'|'reflection'>('lab');
 
-    const evaluate = async () => {
-        if (notes.trim().length < 20) return;
-        setLoading(true);
-        try {
-            const res  = await fetch('http://localhost:8000/api/level0/evaluate-manual-test', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ test_steps: notes, scenario: scenario.title, url: scenario.url }),
-            });
-            const data = await res.json();
-            onAIFeedback(data.feedback);
-        } catch {
-            onAIFeedback('Could not retrieve AI feedback. Is the backend running?');
-        } finally {
-            setLoading(false);
-            setPhase('feedback');
-        }
-    };
+    if (phase === 'lab') {
+        return (
+            <ManualTestLab
+                scenarioId={scenario.id}
+                onComplete={() => setPhase('reflection')}
+                onBack={() => {/* handled by parent ScenarioShell */}}
+            />
+        );
+    }
 
     return (
         <div className="space-y-6">
-            {phase === 'intro' && (<>
-                <div className="border border-slate-700 rounded-xl p-6 bg-slate-800/30">
-                    <h3 className="text-white font-medium mb-3">Manual Testing</h3>
-                    <p className="text-slate-400 text-sm leading-relaxed mb-4">
-                        You will open a real page and test it by hand — no code, just clicking and observing.
-                        Take notes on what you find.
-                    </p>
-                    <div className="border-t border-slate-700 pt-4">
-                        <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-2">Page Under Test</p>
-                        <p className="text-slate-300 text-sm font-mono">{scenario.url.replace('https://', '')}</p>
-                    </div>
-                </div>
-                <div className="border border-slate-700 rounded-xl p-6 bg-slate-800/30">
-                    <h3 className="text-white font-medium mb-3">Your Tasks</h3>
-                    <div className="space-y-3 mb-4">
-                        {content.manualTasks.map((t, i) => (
-                            <div key={i} className="flex items-start space-x-3">
-                                <span className="text-purple-400 text-xs mt-0.5 font-mono">{String(i+1).padStart(2,'0')}</span>
-                                <span className="text-slate-300 text-sm">{t}</span>
-                            </div>
-                        ))}
-                    </div>
-                    {content.credentials && (
-                        <div className="p-3 bg-slate-900/50 rounded-lg border border-slate-700/50">
-                            <p className="text-xs text-slate-500 mb-2">Credentials</p>
-                            {content.credentials.map(c => (
-                                <p key={c.label} className="text-sm font-mono text-slate-300">{c.label}: <span className="text-purple-300">{c.value}</span></p>
-                            ))}
-                        </div>
-                    )}
-                </div>
-                <button onClick={() => { window.open(scenario.url, '_blank'); setPhase('testing'); }}
-                        className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors text-sm font-medium">
-                    Open Page and Start Testing
-                </button>
-            </>)}
-
-            {phase === 'testing' && (<>
-                <div className="border border-purple-500/30 rounded-xl p-6 bg-purple-500/5">
-                    <p className="text-purple-300 text-sm font-medium mb-1">Page opened</p>
-                    <p className="text-slate-400 text-sm">Complete all tasks in the new tab, then return here.</p>
-                </div>
-                <button onClick={() => setPhase('write')}
-                        className="w-full py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors text-sm font-medium">
-                    I Finished Testing, Continue
-                </button>
-            </>)}
-
-            {phase === 'write' && (<>
-                <div className="border border-slate-700 rounded-xl p-6 bg-slate-800/30">
-                    <h3 className="text-white font-medium mb-2">Document Your Test Steps</h3>
-                    <p className="text-slate-400 text-sm">Write what you did and what you observed for each task.</p>
-                </div>
-                <div>
-                    <textarea value={notes} onChange={e => setNotes(e.target.value)}
-                              placeholder={`Test 1: ...\n- Action: ...\n- Result: ...\n\nTest 2: ...`}
-                              className="w-full h-48 bg-slate-900 border border-slate-700 rounded-xl p-4 text-slate-300 text-sm font-mono placeholder-slate-600 focus:outline-none focus:border-slate-500 resize-none" />
-                    <p className="text-xs text-slate-600 mt-2 text-right">{notes.length} characters</p>
-                </div>
-                <button onClick={evaluate} disabled={loading || notes.trim().length < 20}
-                        className="w-full py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium">
-                    {loading ? 'Evaluating...' : 'Evaluate with AI'}
-                </button>
-            </>)}
-
-            {phase === 'feedback' && (<>
-                <div className="border border-slate-700 rounded-xl p-6 bg-slate-800/30">
-                    <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-3">Your Submission</p>
-                    <pre className="text-slate-400 text-sm whitespace-pre-wrap font-mono leading-relaxed">{notes}</pre>
-                </div>
-                <div className="border border-purple-500/30 rounded-xl p-5 bg-purple-500/5 flex items-start space-x-3">
-                    <Sparkles className="w-4 h-4 text-purple-400 flex-shrink-0 mt-0.5" />
-                    <div>
-                        <p className="text-purple-300 text-sm font-medium mb-1">AI feedback ready</p>
-                        <p className="text-slate-400 text-sm">Your test steps have been evaluated. Open the <span className="text-purple-300 font-medium">AI Chat</span> panel on the right to read the feedback and ask follow-up questions.</p>
-                    </div>
-                </div>
-                <button onClick={() => setPhase('reflection')}
-                        className="w-full py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors text-sm font-medium">Continue</button>
-            </>)}
-
-            {phase === 'reflection' && (<>
+            {/* reflection phase */}
+            <>
                 <div className="border border-slate-700 rounded-xl p-6 bg-slate-800/30">
                     <h3 className="text-white font-medium mb-3">Reflect</h3>
                     <p className="text-slate-400 text-sm leading-relaxed">
-                        You just manually tested one scenario on one page. Now imagine:
+                        You just manually tested one scenario inside our app. Now imagine:
                     </p>
                     <div className="mt-4 space-y-3">
                         {['Running these same checks after every single code commit.','Doing this across 5 different browsers simultaneously.','Covering 50 different pages with similar interactions.'].map((t,i) => (
@@ -2269,9 +2186,10 @@ const ManualStep: React.FC<{ scenario: Scenario; onComplete: () => void; onAIFee
                         className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors text-sm font-medium">
                     Continue to Why Automate?
                 </button>
-            </>)}
+            </>
         </div>
     );
+
 };
 
 // ─── STEP B: WHY AUTOMATE ───────────────────────────────────────────────────

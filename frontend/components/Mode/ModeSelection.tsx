@@ -8,30 +8,45 @@ interface ModeSelectionProps {
 
 const PREFS_KEY = 'testmate_user_preferences';
 
-function getPrefs(): { alwaysOpenProduction: boolean } {
+type DefaultMode = 'production' | 'guided' | null;
+
+function getPrefs(): { defaultMode: DefaultMode } {
     try {
-        return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
+        const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
+        // migrate legacy alwaysOpenProduction flag
+        if (raw.alwaysOpenProduction && !raw.defaultMode) {
+            return { defaultMode: 'production' };
+        }
+        return { defaultMode: raw.defaultMode ?? null };
     } catch {
-        return { alwaysOpenProduction: false };
+        return { defaultMode: null };
+    }
+}
+
+function saveDefaultMode(mode: DefaultMode) {
+    try {
+        const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
+        localStorage.setItem(PREFS_KEY, JSON.stringify({ ...raw, defaultMode: mode, alwaysOpenProduction: mode === 'production' }));
+    } catch {
+        // ignore
     }
 }
 
 const ModeSelection: React.FC<ModeSelectionProps> = ({ onSelectMode }) => {
-    const [alwaysOpenProduction, setAlwaysOpenProduction] = useState(false);
+    const [defaultMode, setDefaultMode] = useState<DefaultMode>(null);
 
     useEffect(() => {
-        setAlwaysOpenProduction(!!getPrefs().alwaysOpenProduction);
+        setDefaultMode(getPrefs().defaultMode);
     }, []);
 
     const handleCheckbox = (e: React.MouseEvent) => {
         e.stopPropagation();
     };
 
-    const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const checked = e.target.checked;
-        setAlwaysOpenProduction(checked);
-        const prefs = getPrefs();
-        localStorage.setItem(PREFS_KEY, JSON.stringify({ ...prefs, alwaysOpenProduction: checked }));
+    const handleDefaultModeChange = (mode: 'production' | 'guided') => (e: React.ChangeEvent<HTMLInputElement>) => {
+        const next: DefaultMode = e.target.checked ? mode : null;
+        setDefaultMode(next);
+        saveDefaultMode(next);
     };
 
     return (
@@ -98,32 +113,48 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({ onSelectMode }) => {
                     >
                         <input
                             type="checkbox"
-                            checked={alwaysOpenProduction}
-                            onChange={handleCheckboxChange}
+                            checked={defaultMode === 'production'}
+                            onChange={handleDefaultModeChange('production')}
                             className="w-3.5 h-3.5 rounded accent-purple-400 cursor-pointer"
                         />
                         <span className="text-xs text-purple-300/70 select-none">Always open Production Mode</span>
                     </label>
                 </div>
 
-                {/* Guided Learning — secondary, right, smaller */}
+                {/* Guided Mode — secondary, right, smaller */}
                 <div className="flex-[2] flex flex-col gap-3">
                     <div className="text-center px-2">
                         <p className="text-purple-300 text-sm font-medium leading-snug">
-                            New to testing? Start here by learning the basics —<br />
-                            <span className="text-purple-400/70 text-xs">step-by-step explanations to get you up to speed</span>
+                            For beginners and manual testers —<br />
+                            <span className="text-purple-400/70 text-xs">interactive learning with hands-on practice</span>
                         </p>
                     </div>
                     <div
                         onClick={() => onSelectMode('guided')}
                         className="flex-1 bg-gradient-to-br from-blue-500/10 to-purple-500/10 backdrop-blur-lg rounded-2xl p-5 border border-white/10 hover:border-purple-400/40 transition-all cursor-pointer transform hover:scale-105"
                     >
-                        <div className="flex items-center justify-center w-10 h-10 bg-blue-500/80 rounded-xl mb-4">
-                            <BookOpen className="w-5 h-5 text-white" />
+                        <div className="flex items-center gap-2 mb-4">
+                            <div className="flex items-center justify-center w-10 h-10 bg-blue-500/80 rounded-xl">
+                                <BookOpen className="w-5 h-5 text-white" />
+                            </div>
+                            {/* Jira */}
+                            <div className="flex items-center justify-center w-7 h-7 bg-white/10 rounded-lg">
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M11.571 11.513H0a5.218 5.218 0 005.232 5.215h2.13v2.057A5.215 5.215 0 0012.575 24V12.518a1.005 1.005 0 00-1.004-1.005z" fill="#2684FF"/>
+                                    <path d="M6.026 6.258H17.59a5.218 5.218 0 00-5.232-5.215h-2.13V-.014A5.215 5.215 0 005.022 5.253v1.005z" fill="#2684FF"/>
+                                    <path d="M6.031 6.263H17.59a5.218 5.218 0 015.215 5.215H11.24a5.218 5.218 0 01-5.209-5.215z" fill="url(#jira-gradient-guided)"/>
+                                    <defs>
+                                        <linearGradient id="jira-gradient-guided" x1="17.273" y1="6.315" x2="11.875" y2="11.676" gradientUnits="userSpaceOnUse">
+                                            <stop offset="0%" stopColor="#0052CC"/>
+                                            <stop offset="100%" stopColor="#2684FF"/>
+                                        </linearGradient>
+                                    </defs>
+                                </svg>
+                            </div>
                         </div>
-                        <h3 className="text-lg font-bold text-white mb-2">New to Testing</h3>
+                        <h3 className="text-lg font-bold text-white mb-2">Guided Mode</h3>
                         <p className="text-purple-200/80 text-sm mb-4">
-                            Beginner-friendly, step-by-step guidance with AI explanations.
+                            Perfect for beginners and manual testers. Learn testing fundamentals and automation basics with step-by-step AI-powered guidance.
                         </p>
                         <div className="space-y-1.5 text-xs text-purple-300/70">
                             <div className="flex items-center space-x-2">
@@ -135,6 +166,18 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({ onSelectMode }) => {
                                 <span>Learn automation basics</span>
                             </div>
                         </div>
+                        <label
+                            className="flex items-center space-x-2 mt-5 cursor-pointer w-fit"
+                            onClick={handleCheckbox}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={defaultMode === 'guided'}
+                                onChange={handleDefaultModeChange('guided')}
+                                className="w-3.5 h-3.5 rounded accent-purple-400 cursor-pointer"
+                            />
+                            <span className="text-xs text-purple-300/70 select-none">Always open Guided Mode</span>
+                        </label>
                     </div>
                 </div>
             </div>
